@@ -27,7 +27,7 @@ func NewStatsHandler(statsService service.StatsService) *StatsHandler {
 // @Param start_time query string false "开始日期 YYYY-MM-DD（默认近 30 天）"
 // @Param end_time query string false "结束日期 YYYY-MM-DD（默认今天）"
 // @Param granularity query string false "粒度 day/month（默认 day，跨度 > 366 天自动按月）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.StatsResponse "成功"
 // @Router /api/v1/admin/finance/stats [get]
 func (h *StatsHandler) Stats(c *gin.Context) {
 	var query dto.StatsQuery

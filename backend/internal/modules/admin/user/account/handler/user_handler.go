@@ -47,7 +47,7 @@ func (h *UserHandler) SetOrderQuoteReader(reader func(ctx context.Context, userI
 // @Description 获取用户总览统计数据（总用户/今日新增/活跃/冻结/待实名/待审核/用户总余额/已购用户数）
 // @Tags 用户管理
 // @Produce json
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserStatsResponse "成功"
 //
 //	@Router /api/v1/admin/users/stats [get]
 func (h *UserHandler) GetStats(c *gin.Context) {
@@ -66,7 +66,7 @@ func (h *UserHandler) GetStats(c *gin.Context) {
 // @Produce json
 // @Param limit query int false "每张卡片返回条数" default(8)
 // @Param window_hours query int false "最近登录统计窗口（小时）" default(24)
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserActivityOverviewResponse "成功"
 //
 //	@Router /api/v1/admin/users/activity-overview [get]
 func (h *UserHandler) GetActivityOverview(c *gin.Context) {
@@ -91,7 +91,7 @@ func (h *UserHandler) GetActivityOverview(c *gin.Context) {
 // @Param filter query string false "快捷筛选，如 today/pending_real_name"
 // @Param region query string false "地域筛选"
 // @Param keyword query string false "关键词，支持用户名/姓名/邮箱/手机号模糊搜索"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserListResponse "成功"
 //
 //	@Router /api/v1/admin/users [get]
 func (h *UserHandler) ListUsers(c *gin.Context) {
@@ -116,7 +116,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserCreateRequest true "用户参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserInfo "成功"
 //
 //	@Router /api/v1/admin/users [post]
 func (h *UserHandler) CreateUser(c *gin.Context) {
@@ -139,7 +139,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "用户ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserInfo "成功"
 //
 //	@Router /api/v1/admin/users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
@@ -161,7 +161,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "主账号ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SubAccountMemberListResponse "成功"
 //
 //	@Router /api/v1/admin/users/{id}/members [get]
 func (h *UserHandler) ListMembers(c *gin.Context) {
@@ -185,7 +185,7 @@ func (h *UserHandler) ListMembers(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param request body dto.UserUpdateRequest true "用户参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserInfo "成功"
 //
 //	@Router /api/v1/admin/users/{id} [put]
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -295,7 +295,7 @@ func (h *UserHandler) AssignRoles(c *gin.Context) {
 // @Description 以指定用户身份登录，返回用户端 token
 // @Tags 用户管理
 // @Param id path int true "用户ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ImpersonateResponse "成功"
 //
 //	@Router /api/v1/admin/users/{id}/impersonate [post]
 func (h *UserHandler) Impersonate(c *gin.Context) {

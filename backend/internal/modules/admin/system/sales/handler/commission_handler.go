@@ -32,7 +32,7 @@ func NewCommissionHandler(commission service.CommissionService, withdraw service
 // @Param order_no query string false "订单号模糊"
 // @Param start_at query string false "开始日期 YYYY-MM-DD"
 // @Param end_at query string false "结束日期 YYYY-MM-DD"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CommissionListResponse "成功"
 // @Router /api/v1/admin/sales/commissions [get]
 func (h *CommissionHandler) List(c *gin.Context) {
 	var query dto.CommissionQuery

@@ -394,6 +394,15 @@ func (s *productService) generateAxisSpecsFromTemplate(
 			name = tpl.Name
 		}
 		price := sel.Price
+		// 逐规格定价优先（T4.7）：运营在规格明细里给"2核"和"4核"各填了价。
+		// 按取值组合精确匹配（键值都要对上），命中的那一项覆盖档位/模板/商品的三级回落。
+		costPrice := sel.CostPrice
+		if axisPrice, ok := matchAxisPrice(sel.AxisPrices, combo); ok {
+			price = axisPrice.Price
+			if axisPrice.CostPrice > 0 {
+				costPrice = axisPrice.CostPrice
+			}
+		}
 		if price <= 0 {
 			price = tpl.Price
 		}
@@ -411,7 +420,7 @@ func (s *productService) generateAxisSpecsFromTemplate(
 			Specs:          mergedSpecs,
 			PriceModel:     firstNonEmptyStr(product.PriceModel, model.PriceModelFixed),
 			Price:          price,
-			CostPrice:      sel.CostPrice,
+			CostPrice:      costPrice,
 			Stock:          stock,
 			SpecTemplateID: tpl.ID,
 			Status:         model.ProductSpecEnabled,

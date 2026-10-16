@@ -376,6 +376,34 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 撤掉上游商品的 SKU 维度列（T4.8 反向），等价 migrations/115。
+	// AutoMigrate 只加列不删列，这里显式清理不再使用的列。
+	if err := dropUnusedProductColumns(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// dropUnusedProductColumns 清理已废弃的列。
+//
+// 为什么必须显式删：AutoMigrate 是"只增不减"的 —— 模型里删掉字段后列仍会留在库里，
+// 久而久之没人知道哪些列还有用。这里把确认不再使用的列点名删掉，保持表结构与模型一致。
+//
+// 当前清理项：
+//   - products.sku_axes：上游商品 SKU 维度功能的遗留列。
+//     该功能已撤（对接商品一个商品 = 一个 SPU，不展开 SKU），列不再读写。
+//
+// 幂等：由 HasColumn 判断保证。
+func dropUnusedProductColumns(db *gorm.DB) error {
+	if !db.Migrator().HasTable("products") {
+		return nil
+	}
+	if db.Migrator().HasColumn(&catalogmodel.Product{}, "sku_axes") {
+		if err := db.Migrator().DropColumn(&catalogmodel.Product{}, "sku_axes"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

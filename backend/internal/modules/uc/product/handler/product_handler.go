@@ -29,7 +29,7 @@ func NewProductHandler(productService service.ProductService) *ProductHandler {
 // @Param category_id query int false "分类"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ListResponse "成功"
 // @Router /api/v1/uc/products [get]
 func (h *ProductHandler) List(c *gin.Context) {
 	var query dto.ListQuery
@@ -49,7 +49,7 @@ func (h *ProductHandler) List(c *gin.Context) {
 // @Summary 商品详情
 // @Tags 用户中心-商品
 // @Param id path int true "商品ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Router /api/v1/uc/products/{id} [get]
 func (h *ProductHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

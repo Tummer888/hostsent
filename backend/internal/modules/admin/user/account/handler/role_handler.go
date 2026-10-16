@@ -45,7 +45,7 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.RoleCreateRequest true "角色参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RoleInfo "成功"
 //
 //	@Router /api/v1/admin/roles [post]
 func (h *RoleHandler) CreateRole(c *gin.Context) {
@@ -68,7 +68,7 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 // @Tags 角色管理
 // @Produce json
 // @Param id path int true "角色ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RoleInfo "成功"
 //
 //	@Router /api/v1/admin/roles/{id} [get]
 func (h *RoleHandler) GetRole(c *gin.Context) {
@@ -89,7 +89,7 @@ func (h *RoleHandler) GetRole(c *gin.Context) {
 // @Produce json
 // @Param id path int true "角色ID"
 // @Param request body dto.RoleUpdateRequest true "角色参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RoleInfo "成功"
 //
 //	@Router /api/v1/admin/roles/{id} [put]
 func (h *RoleHandler) UpdateRole(c *gin.Context) {

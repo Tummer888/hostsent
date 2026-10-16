@@ -31,7 +31,7 @@ func NewAdminHandler(adminService service.AdminService) *AdminHandler {
 // @Accept json
 // @Produce json
 // @Param request body dto.AdminLoginRequest true "登录参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.AdminLoginResponse "成功"
 // @Failure 400 {object} response.Body
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/auth/login [post]
@@ -59,7 +59,7 @@ func (h *AdminHandler) Login(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.AdminVerifyOTPRequest true "验证参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.AdminLoginResponse "成功"
 // @Failure 400 {object} response.Body
 // @Router /api/v1/admin/auth/login/verify-otp [post]
 func (h *AdminHandler) VerifyLoginOTP(c *gin.Context) {
@@ -97,7 +97,7 @@ func writeSecurityError(c *gin.Context, err error) {
 // @Tags 管理员认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.AdminInfo "成功"
 // @Failure 401 {object} response.Body
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/auth/me [get]
@@ -132,7 +132,7 @@ func (h *AdminHandler) Me(c *gin.Context) {
 // @Tags 管理端-认证
 // @Security BearerAuth
 // @Param request body dto.AdminCreateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.AdminListResponse "成功"
 // @Router /api/v1/admin/auth/admins [get]
 func (h *AdminHandler) List(c *gin.Context) {
 	var query dto.AdminListQuery
@@ -153,7 +153,7 @@ func (h *AdminHandler) List(c *gin.Context) {
 // @Tags 管理端-认证
 // @Security BearerAuth
 // @Param request body dto.AdminCreateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.AdminInfo "成功"
 // @Router /api/v1/admin/auth/admins [post]
 func (h *AdminHandler) Create(c *gin.Context) {
 	var req dto.AdminCreateRequest
@@ -175,7 +175,7 @@ func (h *AdminHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body dto.AdminUpdateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.AdminInfo "成功"
 // @Router /api/v1/admin/auth/admins/{id} [get]
 func (h *AdminHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -197,7 +197,7 @@ func (h *AdminHandler) Get(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body dto.AdminUpdateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.AdminInfo "成功"
 // @Router /api/v1/admin/auth/admins/{id} [put]
 func (h *AdminHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

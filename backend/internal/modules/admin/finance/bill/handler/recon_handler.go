@@ -23,7 +23,7 @@ func NewReconHandler(reconService service.ReconService) *ReconHandler {
 // @Tags 财务管理-对账
 // @Security BearerAuth
 // @Param request body dto.ReconcileRequest false "账期（空为全量）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ReconcileResponse "成功"
 // @Router /api/v1/admin/finance/bills/recon [post]
 func (h *ReconHandler) Reconcile(c *gin.Context) {
 	var req dto.ReconcileRequest

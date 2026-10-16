@@ -70,6 +70,23 @@ type ProductSpecTemplateSelection struct {
 	// OptionOverrides 就地覆盖的客户选配项（T4.5）：参数名 → 可选值及加价。
 	// 留空时由模板 option_selections + 平台配置项目录自动生成。
 	OptionOverrides []ProductOptionOverride `json:"option_overrides"`
+	// AxisPrices 按轴取值组合逐规格定价（T4.7）：建品时给"2核/4核"各定一个价。
+	//
+	// 为什么按取值组合而不是按 spec_code 传：spec_code 是后端按组合确定性派生的，
+	// 让前端复刻那套规则会多一处必须保持同步的实现（改一处忘一处就静默错价）。
+	// 传取值组合则只需前端知道"我勾了哪些取值"，由后端匹配到对应规格。
+	AxisPrices []ProductAxisSpecPrice `json:"axis_prices"`
+}
+
+// ProductAxisSpecPrice 一个轴取值组合的定价。
+//
+// Values 形如 {"cpu":"4","memory":"8192"}，键是配置档里的参数名（平台参数名），
+// 值是该轴取值的原始值（与 option_selections.values 同口径）。
+// 未命中任何组合时该项被忽略（不报错）—— 运营可能只给部分规格定价。
+type ProductAxisSpecPrice struct {
+	Values    map[string]string `json:"values"`
+	Price     float64           `json:"price"`
+	CostPrice float64           `json:"cost_price"`
 }
 
 // ProductOptionOverride 建品时就地调整某个客户选配项。
@@ -445,75 +462,4 @@ type SpecTemplateGenerateResult struct {
 	BoundPlatformParams json.RawMessage `json:"bound_platform_params"`
 	// Notice 非空表示已生成 SKU 但需人工补充的事项（如平台绑定能力未装配、模板缺平台参数）。
 	Notice string `json:"notice,omitempty"`
-}
-
-// ============================================================================
-// 上游转售商品的 SKU 维度（T4.8）
-// ============================================================================
-
-// UpstreamAxisValueInfo 一个可做 SKU 维度的取值。
-type UpstreamAxisValueInfo struct {
-	// UpstreamSubID 上游取值 id，下发时作为 configoption 的值。
-	UpstreamSubID int64 `json:"upstream_sub_id"`
-	// Label 展示名（"4核"）。
-	Label string `json:"label"`
-	// Raw 上游原始取值名（"4|4核"）。
-	Raw string `json:"raw"`
-	// Monthly / Quarterly / Annually / Onetime 该取值在各周期的加价（上游口径）。
-	Monthly   float64 `json:"monthly"`
-	Quarterly float64 `json:"quarterly"`
-	Annually  float64 `json:"annually"`
-	Onetime   float64 `json:"onetime"`
-}
-
-// UpstreamAxisOptionInfo 一个可做 SKU 维度的上游配置项。
-type UpstreamAxisOptionInfo struct {
-	// Key 本地参数名（cpu / memory / system_disk_size…），保存选择时用它。
-	Key string `json:"key"`
-	// Label 展示名（"CPU"）。
-	Label string `json:"label"`
-	// OptionName 上游原始名（"cpu|CPU"）。
-	OptionName string `json:"option_name"`
-	// Locked 上游锁定（仅一个可见取值）：做轴只会产出 1 个规格，界面应禁用。
-	Locked bool `json:"locked"`
-	// Selected 当前是否被选为 SKU 维度。
-	Selected bool `json:"selected"`
-	// Values 可见取值。
-	Values []UpstreamAxisValueInfo `json:"values"`
-	// CombinationIfSelected 若选上它，组合数会变成多少（界面实时预览用）。
-	CombinationIfSelected int `json:"combination_if_selected"`
-}
-
-// UpstreamAxisOptionsInfo 上游商品的 SKU 维度设置视图。
-type UpstreamAxisOptionsInfo struct {
-	ProductID uint64 `json:"product_id"`
-	// Candidates 全部可做维度的配置项（含未选中的，供界面勾选）。
-	Candidates []UpstreamAxisOptionInfo `json:"candidates"`
-	// SelectedKeys 已选中的维度（有序，按 key 升序）。
-	SelectedKeys []string `json:"selected_keys"`
-	// CombinationCount 当前选择会生成的规格数（未选任何维度时为 0）。
-	CombinationCount int `json:"combination_count"`
-	// MaxCombinations 组合数上限（界面对照展示）。
-	MaxCombinations int `json:"max_combinations"`
-	// ExistingSpecCount 该商品当前已有的规格数（含手工新增的）。
-	ExistingSpecCount int `json:"existing_spec_count"`
-	// Notice 非空表示当前选择有问题（如某个已保存的维度已失效）。
-	Notice string `json:"notice,omitempty"`
-}
-
-// UpstreamAxisSaveRequest 保存 SKU 维度选择。
-type UpstreamAxisSaveRequest struct {
-	// Keys 选中的参数名列表（cpu/memory…）；空数组表示取消全部维度。
-	Keys []string `json:"keys"`
-}
-
-// UpstreamAxisGenerateResult 按维度生成规格的结果。
-type UpstreamAxisGenerateResult struct {
-	// Specs 本次生成/更新的规格。
-	Specs []ProductSpecInfo `json:"specs"`
-	// Created / Updated 新增与更新的条数（幂等重跑时 Updated 等于总数、Created 为 0）。
-	Created int `json:"created"`
-	Updated int `json:"updated"`
-	// CombinationCount 本次按组合数生成的规格总数。
-	CombinationCount int `json:"combination_count"`
 }

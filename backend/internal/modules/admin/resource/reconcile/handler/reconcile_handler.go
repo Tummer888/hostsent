@@ -30,7 +30,7 @@ func NewReconcileHandler(svc service.ReconcileService) *ReconcileHandler {
 // @Param anomaly query string false "异常过滤 danger/warning/ok/below_cost/thin_margin/expire_early/expire_late/missing"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ReconcileListResponse "成功"
 // @Router /api/v1/admin/resource/reconcile [get]
 func (h *ReconcileHandler) List(c *gin.Context) {
 	var query dto.ReconcileListQuery

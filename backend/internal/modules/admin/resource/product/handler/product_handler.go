@@ -51,7 +51,7 @@ func (h *ProductHandler) List(c *gin.Context) {
 // @Summary 查询商品详情
 // @Tags 资源管理-上游商品
 // @Param id path int true "商品 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/products/{id} [get]
 func (h *ProductHandler) Get(c *gin.Context) {
@@ -72,7 +72,7 @@ func (h *ProductHandler) Get(c *gin.Context) {
 // @Tags 资源管理-上游商品
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductPriceRequest true "价格参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/products/{id}/price [put]
 func (h *ProductHandler) UpdatePrice(c *gin.Context) {
@@ -97,7 +97,7 @@ func (h *ProductHandler) UpdatePrice(c *gin.Context) {
 // @Summary 手动同步商品
 // @Tags 资源管理-上游商品
 // @Param request body map[string]uint64 true "provider_id"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SyncResult "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/products/sync [post]
 func (h *ProductHandler) Sync(c *gin.Context) {

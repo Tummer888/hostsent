@@ -86,7 +86,7 @@ func writeError(err error) *apperrors.AppError {
 // @Param expire_within_days query int false "临期天数，默认 7"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ListResponse "成功"
 // @Router /api/v1/admin/instances [get]
 func (h *InstanceHandler) List(c *gin.Context) {
 	var query dto.ListQuery
@@ -106,7 +106,7 @@ func (h *InstanceHandler) List(c *gin.Context) {
 // @Summary 实例运维概览统计
 // @Tags 管理端-实例运维
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.StatsResponse "成功"
 // @Router /api/v1/admin/instances/stats [get]
 func (h *InstanceHandler) Stats(c *gin.Context) {
 	var query dto.StatsQuery
@@ -126,7 +126,7 @@ func (h *InstanceHandler) Stats(c *gin.Context) {
 // @Summary 实例产品类型清单
 // @Tags 管理端-实例运维
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InstanceTypeSummary "成功"
 // @Router /api/v1/admin/instances/types [get]
 func (h *InstanceHandler) InstanceTypes(c *gin.Context) {
 	resp, err := h.svc.InstanceTypes(c.Request.Context())
@@ -143,7 +143,7 @@ func (h *InstanceHandler) InstanceTypes(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
 // @Param live query bool false "是否回源刷新"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.DetailInfo "成功"
 // @Router /api/v1/admin/instances/{id} [get]
 func (h *InstanceHandler) Detail(c *gin.Context) {
 	id, ok := pathID(c)
@@ -164,7 +164,7 @@ func (h *InstanceHandler) Detail(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.OperationListResponse "成功"
 // @Router /api/v1/admin/instances/{id}/operations [get]
 func (h *InstanceHandler) Operations(c *gin.Context) {
 	id, ok := pathID(c)
@@ -189,7 +189,7 @@ func (h *InstanceHandler) Operations(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RelatedInfo "成功"
 // @Router /api/v1/admin/instances/{id}/related [get]
 func (h *InstanceHandler) Related(c *gin.Context) {
 	id, ok := pathID(c)
@@ -217,7 +217,7 @@ func (h *InstanceHandler) Related(c *gin.Context) {
 // @Param end_time query string false "结束时间"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.OperationLogListResponse "成功"
 // @Router /api/v1/admin/instances/operations [get]
 func (h *InstanceHandler) OperationLogs(c *gin.Context) {
 	var query dto.OperationLogQuery
@@ -238,7 +238,7 @@ func (h *InstanceHandler) OperationLogs(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.DetailInfo "成功"
 // @Router /api/v1/admin/instances/{id}/sync [post]
 func (h *InstanceHandler) Sync(c *gin.Context) {
 	id, ok := pathID(c)
@@ -258,7 +258,7 @@ func (h *InstanceHandler) Sync(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.DetailInfo "成功"
 // @Router /api/v1/admin/instances/{id}/provision-retry [post]
 func (h *InstanceHandler) RetryProvision(c *gin.Context) {
 	id, ok := pathID(c)
@@ -303,7 +303,7 @@ func (h *InstanceHandler) Power(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.VNCResult "成功"
 // @Router /api/v1/admin/instances/{id}/vnc [post]
 func (h *InstanceHandler) VNC(c *gin.Context) {
 	id, ok := pathID(c)
@@ -443,7 +443,7 @@ func (h *InstanceHandler) Unsuspend(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param body body dto.BatchActionRequest true "批量动作与实例 ID 列表"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Router /api/v1/admin/instances/batch [post]
 func (h *InstanceHandler) BatchAction(c *gin.Context) {
 	var req dto.BatchActionRequest
@@ -464,7 +464,7 @@ func (h *InstanceHandler) BatchAction(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param body body dto.BatchDestroyRequest true "实例 ID 列表与逐台确认文本"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchDestroyResponse "成功"
 // @Router /api/v1/admin/instances/batch-destroy [post]
 func (h *InstanceHandler) BatchDestroy(c *gin.Context) {
 	var req dto.BatchDestroyRequest
@@ -485,7 +485,7 @@ func (h *InstanceHandler) BatchDestroy(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param body body dto.BatchPurgeRequest true "逐台确认文本"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchPurgeResponse "成功"
 // @Router /api/v1/admin/instances/batch-purge [post]
 func (h *InstanceHandler) BatchPurge(c *gin.Context) {
 	var req dto.BatchPurgeRequest
@@ -560,7 +560,7 @@ func (h *InstanceHandler) Purge(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
 // @Param body body dto.ReinstallRequest true "目标镜像与选项"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ReinstallResult "成功"
 // @Router /api/v1/admin/instances/{id}/reinstall [post]
 func (h *InstanceHandler) Reinstall(c *gin.Context) {
 	id, ok := pathID(c)
@@ -822,7 +822,7 @@ func (h *InstanceHandler) AttachDataDisk(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
 // @Param body body dto.AdjustRequest true "账期调整"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.DetailInfo "成功"
 // @Router /api/v1/admin/instances/{id}/billing [put]
 func (h *InstanceHandler) AdjustBilling(c *gin.Context) {
 	id, ok := pathID(c)
@@ -847,7 +847,7 @@ func (h *InstanceHandler) AdjustBilling(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.AdjustContext "成功"
 // @Router /api/v1/admin/instances/{id}/billing-context [get]
 func (h *InstanceHandler) AdjustContext(c *gin.Context) {
 	id, ok := pathID(c)
@@ -868,7 +868,7 @@ func (h *InstanceHandler) AdjustContext(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
 // @Param body body dto.RelinkRequest true "目标上游实例号与确认标识"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RelinkResult "成功"
 // @Router /api/v1/admin/instances/{id}/relink [post]
 func (h *InstanceHandler) RelinkUpstream(c *gin.Context) {
 	id, ok := pathID(c)
@@ -894,7 +894,7 @@ func (h *InstanceHandler) RelinkUpstream(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
 // @Param body body dto.RebindProductRequest true "目标本地商品与上游镜像"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RebindProductResult "成功"
 // @Router /api/v1/admin/instances/{id}/rebind-product [post]
 func (h *InstanceHandler) RebindProduct(c *gin.Context) {
 	id, ok := pathID(c)
@@ -919,7 +919,7 @@ func (h *InstanceHandler) RebindProduct(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RebindProductCandidates "成功"
 // @Router /api/v1/admin/instances/{id}/rebind-candidates [get]
 func (h *InstanceHandler) RebindCandidates(c *gin.Context) {
 	id, ok := pathID(c)
@@ -939,7 +939,7 @@ func (h *InstanceHandler) RebindCandidates(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ReinstallImages "成功"
 // @Router /api/v1/admin/instances/{id}/reinstall-images [get]
 func (h *InstanceHandler) ReinstallImages(c *gin.Context) {
 	id, ok := pathID(c)
@@ -959,7 +959,7 @@ func (h *InstanceHandler) ReinstallImages(c *gin.Context) {
 // @Tags 管理端-实例运维
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CredentialRevealResult "成功"
 // @Router /api/v1/admin/instances/{id}/credential [post]
 func (h *InstanceHandler) RevealCredential(c *gin.Context) {
 	id, ok := pathID(c)

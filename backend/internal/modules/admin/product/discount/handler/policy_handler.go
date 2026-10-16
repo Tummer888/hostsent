@@ -28,7 +28,7 @@ func NewPolicyHandler(policyService service.PolicyService) *PolicyHandler {
 // @Param keyword query string false "名称/编码关键词"
 // @Param status query string false "状态 active/disabled"
 // @Param scope query string false "作用域 all/category/product"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PolicyListResponse "成功"
 // @Router /api/v1/admin/product/discount-policies [get]
 func (h *PolicyHandler) List(c *gin.Context) {
 	var query dto.PolicyQuery
@@ -49,7 +49,7 @@ func (h *PolicyHandler) List(c *gin.Context) {
 // @Tags 产品管理-折扣策略
 // @Security BearerAuth
 // @Param id path int true "策略 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PolicyInfo "成功"
 // @Router /api/v1/admin/product/discount-policies/{id} [get]
 func (h *PolicyHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -66,7 +66,7 @@ func (h *PolicyHandler) Get(c *gin.Context) {
 // @Tags 产品管理-折扣策略
 // @Security BearerAuth
 // @Param request body dto.PolicyRequest true "折扣策略参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PolicyInfo "成功"
 // @Router /api/v1/admin/product/discount-policies [post]
 func (h *PolicyHandler) Create(c *gin.Context) {
 	var req dto.PolicyRequest
@@ -88,7 +88,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "策略 ID"
 // @Param request body dto.PolicyRequest true "折扣策略参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PolicyInfo "成功"
 // @Router /api/v1/admin/product/discount-policies/{id} [put]
 func (h *PolicyHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)

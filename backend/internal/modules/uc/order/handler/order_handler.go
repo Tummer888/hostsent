@@ -46,7 +46,7 @@ func currentActorID(c *gin.Context) uint64 {
 // @Tags 用户中心-订单
 // @Security BearerAuth
 // @Param request body dto.CreateRequest true "下单参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.OrderInfo "成功"
 // @Router /api/v1/uc/orders [post]
 func (h *OrderHandler) Create(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -74,7 +74,7 @@ func (h *OrderHandler) Create(c *gin.Context) {
 // @Param status query string false "状态"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ListResponse "成功"
 // @Router /api/v1/uc/orders [get]
 func (h *OrderHandler) List(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -101,7 +101,7 @@ func (h *OrderHandler) List(c *gin.Context) {
 // @Tags 用户中心-订单
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
-// @Success 200 {object} response.Body{data=dto.OrderInfo}
+// @Success 200 {object} dto.OrderInfo "成功"
 // @Router /api/v1/uc/orders/{id} [get]
 func (h *OrderHandler) Detail(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -128,7 +128,7 @@ func (h *OrderHandler) Detail(c *gin.Context) {
 // @Tags 用户中心-订单
 // @Security BearerAuth
 // @Param request body dto.QuoteRequest true "预结算参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.QuoteInfo "成功"
 // @Router /api/v1/uc/orders/quote [post]
 func (h *OrderHandler) Quote(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -156,7 +156,7 @@ func (h *OrderHandler) Quote(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
 // @Param request body dto.PayRequest true "支付参数（渠道与场景）"
-// @Success 200 {object} response.Body{data=dto.PayInfo}
+// @Success 200 {object} dto.PayInfo "成功"
 // @Router /api/v1/uc/orders/{id}/pay [post]
 func (h *OrderHandler) Pay(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -188,7 +188,7 @@ func (h *OrderHandler) Pay(c *gin.Context) {
 // @Tags 用户中心-订单
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
-// @Success 200 {object} response.Body{data=dto.OrderInfo}
+// @Success 200 {object} dto.OrderInfo "成功"
 // @Router /api/v1/uc/orders/{id}/cancel [post]
 func (h *OrderHandler) Cancel(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -217,7 +217,7 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
 // @Param request body dto.UserRefundRequest true "退款申请"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserRefundResult "成功"
 // @Router /api/v1/uc/orders/{id}/refund [post]
 func (h *OrderHandler) Refund(c *gin.Context) {
 	userID, ok := currentUserID(c)

@@ -26,7 +26,7 @@ func NewArticleHandler(svc contentservice.ArticleService) *ArticleHandler {
 // @Summary 内容文章列表
 // @Tags 内容管理-文章
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ArticleListResponse "成功"
 // @Router /api/v1/admin/content/articles [get]
 func (h *ArticleHandler) List(c *gin.Context) {
 	var req dto.ArticleListQuery

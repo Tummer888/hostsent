@@ -54,7 +54,7 @@ func (h *BillHandler) List(c *gin.Context) {
 // @Tags 财务管理-账单
 // @Security BearerAuth
 // @Param request body dto.GenerateRequest true "用户与账期"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BillInfo "成功"
 // @Router /api/v1/admin/finance/bills/generate [post]
 func (h *BillHandler) Generate(c *gin.Context) {
 	var req dto.GenerateRequest
@@ -77,7 +77,7 @@ func (h *BillHandler) Generate(c *gin.Context) {
 // @Param user_id query int false "用户 ID"
 // @Param status query string false "申请状态"
 // @Param bill_no query string false "账单号"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InvoiceListResponse "成功"
 // @Router /api/v1/admin/finance/invoices [get]
 func (h *BillHandler) Invoices(c *gin.Context) {
 	var query dto.InvoiceListQuery
@@ -99,7 +99,7 @@ func (h *BillHandler) Invoices(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "申请单 ID"
 // @Param request body dto.InvoiceIssueRequest true "发票号"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InvoiceInfo "成功"
 // @Router /api/v1/admin/finance/invoices/{id}/issue [post]
 func (h *BillHandler) IssueInvoice(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -125,7 +125,7 @@ func (h *BillHandler) IssueInvoice(c *gin.Context) {
 // @Tags 财务管理-发票
 // @Security BearerAuth
 // @Param id path int true "申请单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InvoiceInfo "成功"
 // @Router /api/v1/admin/finance/invoices/{id}/reject [post]
 func (h *BillHandler) RejectInvoice(c *gin.Context) {
 	id, ok := pathID(c, "id")

@@ -34,7 +34,7 @@ func NewPromotionHandler(couponService service.CouponService, couponGrantService
 // @Param keyword query string false "关键字"
 // @Param coupon_type query string false "优惠券类型"
 // @Param status query int false "状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CouponListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/coupons [get]
 func (h *PromotionHandler) ListCoupons(c *gin.Context) {
@@ -56,7 +56,7 @@ func (h *PromotionHandler) ListCoupons(c *gin.Context) {
 // @Tags 产品管理-促销
 // @Security BearerAuth
 // @Param request body dto.CouponRequest true "优惠券参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CouponInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/coupons [post]
 func (h *PromotionHandler) CreateCoupon(c *gin.Context) {
@@ -77,7 +77,7 @@ func (h *PromotionHandler) CreateCoupon(c *gin.Context) {
 // @Summary 查询优惠券详情
 // @Tags 产品管理-促销
 // @Param id path int true "优惠券 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CouponInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/coupons/{id} [get]
 func (h *PromotionHandler) GetCoupon(c *gin.Context) {
@@ -98,7 +98,7 @@ func (h *PromotionHandler) GetCoupon(c *gin.Context) {
 // @Tags 产品管理-促销
 // @Param id path int true "优惠券 ID"
 // @Param request body dto.CouponRequest true "优惠券参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CouponInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/coupons/{id} [put]
 func (h *PromotionHandler) UpdateCoupon(c *gin.Context) {
@@ -146,7 +146,7 @@ func (h *PromotionHandler) DeleteCoupon(c *gin.Context) {
 // @Security BearerAuth
 // @Param coupon_id query int false "优惠券 ID"
 // @Param status query string false "状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CouponGrantListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/coupon-grants [get]
 func (h *PromotionHandler) ListCouponGrants(c *gin.Context) {
@@ -194,7 +194,7 @@ func (h *PromotionHandler) CreateCouponGrants(c *gin.Context) {
 // @Param keyword query string false "关键字"
 // @Param promotion_type query string false "活动类型"
 // @Param status query int false "状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PromotionListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/promotions [get]
 func (h *PromotionHandler) ListPromotions(c *gin.Context) {
@@ -216,7 +216,7 @@ func (h *PromotionHandler) ListPromotions(c *gin.Context) {
 // @Tags 产品管理-促销
 // @Security BearerAuth
 // @Param request body dto.PromotionRequest true "活动参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PromotionInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/promotions [post]
 func (h *PromotionHandler) CreatePromotion(c *gin.Context) {
@@ -237,7 +237,7 @@ func (h *PromotionHandler) CreatePromotion(c *gin.Context) {
 // @Summary 查询促销活动详情
 // @Tags 产品管理-促销
 // @Param id path int true "活动 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PromotionInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/promotions/{id} [get]
 func (h *PromotionHandler) GetPromotion(c *gin.Context) {
@@ -258,7 +258,7 @@ func (h *PromotionHandler) GetPromotion(c *gin.Context) {
 // @Tags 产品管理-促销
 // @Param id path int true "活动 ID"
 // @Param request body dto.PromotionRequest true "活动参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PromotionInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/promotion/promotions/{id} [put]
 func (h *PromotionHandler) UpdatePromotion(c *gin.Context) {

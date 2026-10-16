@@ -90,7 +90,7 @@ func (a *asm) buildCatalog() {
 	a.priceMatrixHandler = pricinghandler.NewPriceMatrixHandler(a.priceMatrixService)
 	// 上游调价确认 → 按周期重算售出商品的价格矩阵（doc25 §5）。
 	a.prodCatalogService.SetCyclePriceWriter(NewCyclePriceWriter(a.priceMatrixService))
-	// SKU 级周期价读写（T4.8 上游 SKU 维度展开：基准价 + 组合加价写进该 SKU 的矩阵行）
+	// SKU 级周期价读写（T4.7 按规格定价：每个规格写自己的周期价行）
 	mw, mr := NewCyclePriceMatrix(a.priceMatrixService)
 	a.prodCatalogService.SetCyclePriceMatrixWriter(mw)
 	a.prodCatalogService.SetCyclePriceReader(mr)
@@ -496,7 +496,7 @@ func (a *cyclePriceWriterAdapter) ApplyUpstreamPrices(ctx context.Context, produ
 	return a.matrix.ApplyUpstreamPrices(ctx, productID, converted)
 }
 
-// cyclePriceMatrixAdapter 给指定 SKU 写周期价 + 读基准周期价（上游 SKU 维度展开用，T4.8）。
+// cyclePriceMatrixAdapter 给指定 SKU 写周期价 + 读基准周期价（按规格定价用，T4.7）。
 //
 // 为什么不复用 cyclePriceWriterAdapter：那个是"按上游成本刷新商品级各周期价并保留人工行"，
 // 语义是成本同步；这里要写的是"某个 SKU 按组合算出的售价"，目标是具体 spec_id，
@@ -505,7 +505,7 @@ type cyclePriceMatrixAdapter struct {
 	matrix matrixservice.PriceMatrixService
 }
 
-// NewCyclePriceMatrix 创建 SKU 级周期价读写适配器（T4.8）。
+// NewCyclePriceMatrix 创建 SKU 级周期价读写适配器（T4.7）。
 func NewCyclePriceMatrix(matrix matrixservice.PriceMatrixService) (catalogservice.CyclePriceMatrixWriter, catalogservice.CyclePriceReader) {
 	a := &cyclePriceMatrixAdapter{matrix: matrix}
 	return a, a
@@ -531,7 +531,7 @@ func (a *cyclePriceMatrixAdapter) SaveSpecPrices(ctx context.Context, productID,
 		ProductID: productID,
 		SpecID:    specID,
 		Items:     items,
-		Remark:    "按上游 SKU 维度生成",
+		Remark:    "按规格定价",
 	})
 	return err
 }

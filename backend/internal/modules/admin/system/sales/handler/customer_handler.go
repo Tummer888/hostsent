@@ -30,7 +30,7 @@ func NewCustomerHandler(customer service.CustomerService) *CustomerHandler {
 // @Param department_id query int false "指定部门（主管/超管）"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CustomerListResponse "成功"
 // @Router /api/v1/admin/sales/customers [get]
 func (h *CustomerHandler) List(c *gin.Context) {
 	var query dto.CustomerQuery

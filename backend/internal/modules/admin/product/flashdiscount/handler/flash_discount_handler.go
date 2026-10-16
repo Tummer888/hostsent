@@ -30,7 +30,7 @@ func NewHandler(svc service.Service) *Handler {
 // @Param keyword query string false "关键字"
 // @Param status query string false "启停意图 active/disabled"
 // @Param running query string false "只看此刻进行中（true）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ListResponse "成功"
 // @Router /api/v1/admin/product/promotion/flash-discounts [get]
 func (h *Handler) List(c *gin.Context) {
 	var query dto.Query
@@ -51,7 +51,7 @@ func (h *Handler) List(c *gin.Context) {
 // @Tags 产品管理-促销
 // @Security BearerAuth
 // @Param request body dto.Request true "活动参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.Info "成功"
 // @Router /api/v1/admin/product/promotion/flash-discounts [post]
 func (h *Handler) Create(c *gin.Context) {
 	var req dto.Request
@@ -72,7 +72,7 @@ func (h *Handler) Create(c *gin.Context) {
 // @Tags 产品管理-促销
 // @Security BearerAuth
 // @Param id path int true "活动ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.Info "成功"
 // @Router /api/v1/admin/product/promotion/flash-discounts/{id} [get]
 func (h *Handler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -90,7 +90,7 @@ func (h *Handler) Get(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "活动ID"
 // @Param request body dto.Request true "活动参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.Info "成功"
 // @Router /api/v1/admin/product/promotion/flash-discounts/{id} [put]
 func (h *Handler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)

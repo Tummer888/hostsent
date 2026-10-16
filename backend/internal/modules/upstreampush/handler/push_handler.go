@@ -42,7 +42,7 @@ func NewHandler(svc service.Service, logger *zap.Logger) *Handler {
 // @Summary 接收上游主机信息推送
 // @Tags 上游推送
 // @Accept x-www-form-urlencoded
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.HostSyncResult "成功"
 // @Router /api/host/sync [post]
 func (h *Handler) HostSync(c *gin.Context) {
 	var req dto.HostSyncRequest
@@ -68,7 +68,7 @@ func (h *Handler) HostSync(c *gin.Context) {
 // @Summary 接收上游工单回复推送
 // @Tags 上游推送
 // @Accept x-www-form-urlencoded
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketReplySyncResult "成功"
 // @Router /api/ticket_reply/sync [post]
 func (h *Handler) TicketReplySync(c *gin.Context) {
 	var req dto.TicketReplySyncRequest

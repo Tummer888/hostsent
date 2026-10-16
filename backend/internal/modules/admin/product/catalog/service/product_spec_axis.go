@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"hostsent/backend/internal/modules/admin/product/catalog/dto"
 )
 
 const (
@@ -186,5 +188,54 @@ func sortCombos(combos []map[string]string, keys []string) []string {
 		out = append(out, strings.Join(parts, ","))
 	}
 	sort.Strings(out)
+	return out
+}
+
+// matchAxisPrice 在逐规格定价列表里找匹配某个取值组合的那一项。
+//
+// 匹配口径：键集合完全一致、且每个取值都相等。要求"键集合一致"是为了避免误命中 ——
+// 若只比对交集，运营给 {cpu:4} 定的价会顺带命中 {cpu:4, memory:8192}，
+// 那个规格就拿不到自己该有的价。运营只需要给想单独定价的规格填项。
+func matchAxisPrice(prices []dto.ProductAxisSpecPrice, combo map[string]string) (dto.ProductAxisSpecPrice, bool) {
+	for _, item := range prices {
+		if len(item.Values) != len(combo) {
+			continue
+		}
+		matched := true
+		for k, want := range item.Values {
+			got, ok := combo[k]
+			if !ok || strings.TrimSpace(got) != strings.TrimSpace(want) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return item, true
+		}
+	}
+	return dto.ProductAxisSpecPrice{}, false
+}
+
+// axisComboWithDefaults 把轴组合补全成"该规格完整的取值集合"，供逐规格定价匹配用。
+//
+// 为什么要补：前端只提交它勾选过的轴取值组合；组合的键集合必须与运营填价时看到的
+// 规格维度一致，否则匹配会因键数不等而全部落空。
+func axisComboWithDefaults(plan *axisPlan, combo map[string]string) map[string]string {
+	out := make(map[string]string, len(combo))
+	for k, v := range combo {
+		out[k] = v
+	}
+	if plan == nil {
+		return out
+	}
+	// 组合本身已含全部轴取值（plan.Combinations 是完整笛卡尔积），这里只做补齐兜底。
+	for _, axis := range plan.Axes {
+		if _, ok := out[axis.Key]; ok {
+			continue
+		}
+		if len(axis.Values) > 0 {
+			out[axis.Key] = axis.Values[0]
+		}
+	}
 	return out
 }

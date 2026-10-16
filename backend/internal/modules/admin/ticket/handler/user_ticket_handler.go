@@ -38,7 +38,7 @@ type userTicketPageQuery struct {
 // @Security BearerAuth
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketListResponse "成功"
 // @Router /api/v1/uc/support/tickets [get]
 func (h *UserTicketHandler) List(c *gin.Context) {
 	userID, _, ok := currentUserID(c)
@@ -64,7 +64,7 @@ func (h *UserTicketHandler) List(c *gin.Context) {
 // @Tags 用户中心-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/uc/support/tickets/{id} [get]
 func (h *UserTicketHandler) Get(c *gin.Context) {
 	userID, _, ok := currentUserID(c)
@@ -89,7 +89,7 @@ func (h *UserTicketHandler) Get(c *gin.Context) {
 // @Tags 用户中心-工单
 // @Security BearerAuth
 // @Param request body dto.TicketCreateRequest true "工单参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/uc/support/tickets [post]
 func (h *UserTicketHandler) Create(c *gin.Context) {
 	// 提交人 = 真实操作人（P4-05）：子账号提交的工单记在其本人名下，主账号按归属可查。
@@ -117,7 +117,7 @@ func (h *UserTicketHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
 // @Param request body dto.TicketReplyRequest true "回复内容"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/uc/support/tickets/{id}/replies [post]
 func (h *UserTicketHandler) Reply(c *gin.Context) {
 	// 归属账号用于权限校验，操作人用于回复落库（P4-05）。
@@ -155,7 +155,7 @@ func (h *UserTicketHandler) Reply(c *gin.Context) {
 // @Tags 用户中心-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/uc/support/tickets/{id}/cancel [post]
 func (h *UserTicketHandler) Cancel(c *gin.Context) {
 	userID, _, ok := currentUserID(c)
@@ -179,7 +179,7 @@ func (h *UserTicketHandler) Cancel(c *gin.Context) {
 // @Summary 获取可用工单分类列表（含提交前置条件与实名状态）
 // @Tags 用户中心-工单
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserCategoryListResponse "成功"
 // @Router /api/v1/uc/support/ticket-categories [get]
 func (h *UserTicketHandler) ListCategories(c *gin.Context) {
 	accountID, _, ok := currentUserID(c)
@@ -204,7 +204,7 @@ func (h *UserTicketHandler) ListCategories(c *gin.Context) {
 // @Tags 用户中心-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketAttachmentInfo "成功"
 // @Router /api/v1/uc/support/tickets/{id}/attachments [post]
 func (h *UserTicketHandler) UploadAttachment(c *gin.Context) {
 	accountID, _, ok := currentUserID(c)

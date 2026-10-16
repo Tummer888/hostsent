@@ -28,7 +28,7 @@ func NewMemberHandler(memberService service.MemberService) *MemberHandler {
 // @Summary 我的成员列表（仅主账号）
 // @Tags 用户中心-成员
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ListResponse "成功"
 // @Router /api/v1/uc/members [get]
 func (h *MemberHandler) List(c *gin.Context) {
 	ownerID, isSub, ok := actor(c)
@@ -53,7 +53,7 @@ func (h *MemberHandler) List(c *gin.Context) {
 // @Tags 用户中心-成员
 // @Security BearerAuth
 // @Param request body dto.CreateRequest true "成员参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CreateResponse "成功"
 // @Router /api/v1/uc/members [post]
 func (h *MemberHandler) Create(c *gin.Context) {
 	ownerID, isSub, ok := actor(c)
@@ -77,7 +77,7 @@ func (h *MemberHandler) Create(c *gin.Context) {
 // @Summary 修改成员备注/状态
 // @Tags 用户中心-成员
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.Info "成功"
 // @Router /api/v1/uc/members/{id} [put]
 func (h *MemberHandler) Update(c *gin.Context) {
 	ownerID, isSub, ok := actor(c)
@@ -105,7 +105,7 @@ func (h *MemberHandler) Update(c *gin.Context) {
 // @Summary 覆盖式设置成员权限
 // @Tags 用户中心-成员
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.Info "成功"
 // @Router /api/v1/uc/members/{id}/permissions [put]
 func (h *MemberHandler) SetPermissions(c *gin.Context) {
 	ownerID, isSub, ok := actor(c)
@@ -155,7 +155,7 @@ func (h *MemberHandler) Delete(c *gin.Context) {
 // @Summary 成员操作日志
 // @Tags 用户中心-成员
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.OperationLogListResponse "成功"
 // @Router /api/v1/uc/members/{id}/logs [get]
 func (h *MemberHandler) ListLogs(c *gin.Context) {
 	ownerID, isSub, ok := actor(c)

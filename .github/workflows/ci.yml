@@ -122,7 +122,7 @@ jobs:
         # 拦截「注解写了但类型/路由已变」。注解缺失的端点不进文档——
         # 新增 handler 必须带注解（规范见 CONTRIBUTING）。
         run: |
-          go install github.com/swaggo/swag/v2/cmd/swag@v2.0.0-rc6
+          go install github.com/swaggo/swag/v2/cmd/swag@v2.0.0
           ~/go/bin/swag init -g cmd/server/main.go -o docs -ot json \
             --v3.1 --parseDependency --parseInternal
 

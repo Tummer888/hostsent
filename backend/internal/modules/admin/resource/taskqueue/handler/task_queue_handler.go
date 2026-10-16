@@ -36,7 +36,7 @@ func NewTaskQueueHandler(svc service.TaskQueueService) *TaskQueueHandler {
 // @Param created_to query string false "创建时间止"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TaskQueueListResponse "成功"
 // @Router /api/v1/admin/resource/task-queue [get]
 func (h *TaskQueueHandler) List(c *gin.Context) {
 	var query dto.TaskQueueListQuery

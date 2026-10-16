@@ -58,12 +58,6 @@ type ProductService interface {
 	ResolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*OptionPricing, error)
 	// FindSpec 按商品 + 规格编码取启用中的 SKU（下单/算价用，T4.1）。
 	FindSpec(ctx context.Context, productID uint64, specCode string) (*dto.ProductSpecInfo, error)
-	// UpstreamAxisOptions 列出上游商品可做 SKU 维度的配置项及其当前选择（T4.8）。
-	UpstreamAxisOptions(ctx context.Context, productID uint64) (*dto.UpstreamAxisOptionsInfo, error)
-	// SaveUpstreamAxisOptions 保存 SKU 维度选择（T4.8）：只存选择，不立即生成规格。
-	SaveUpstreamAxisOptions(ctx context.Context, productID uint64, req dto.UpstreamAxisSaveRequest, operatorID uint64, operatorName string) (*dto.UpstreamAxisOptionsInfo, error)
-	// GenerateUpstreamAxisSpecs 按已保存的 SKU 维度展开生成规格（T4.8，幂等）。
-	GenerateUpstreamAxisSpecs(ctx context.Context, productID uint64, operatorID uint64, operatorName string) (*dto.UpstreamAxisGenerateResult, error)
 	// DecrementSpecStock / IncrementSpecStock SKU 库存原子增减（下单扣减、失败回补，T4.1）。
 	DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
@@ -98,9 +92,9 @@ type ProductService interface {
 	// SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
 	// 装配层在价格矩阵服务就绪后调用（构造顺序上 catalog 先于 pricing，故不放构造函数）。
 	SetCyclePriceWriter(w CyclePriceWriter)
-	// SetCyclePriceMatrixWriter 注入「指定 SKU 写周期价」能力（T4.8 上游 SKU 维度展开）。
+	// SetCyclePriceMatrixWriter 注入「指定 SKU 写周期价」能力（自营按规格定价，T4.7）。
 	SetCyclePriceMatrixWriter(w CyclePriceMatrixWriter)
-	// SetCyclePriceReader 注入「读基准周期价」能力（T4.8 上游 SKU 维度展开算价基数）。
+	// SetCyclePriceReader 注入「读基准周期价」能力（按规格定价的算价基数，T4.7）。
 	SetCyclePriceReader(r CyclePriceReader)
 	// SetSpecTemplateReader 注入规格模板读取能力（自营链路按模板生成 SKU）。
 	// 同上：模板仓储在装配顺序上晚于 catalog 服务构建。
@@ -342,17 +336,17 @@ type CyclePriceWriter interface {
 	ApplyUpstreamPrices(ctx context.Context, productID uint64, rows []CyclePriceRow) error
 }
 
-// CyclePriceMatrixWriter 周期价格矩阵的「指定 SKU 整表写入」能力（T4.8）。
+// CyclePriceMatrixWriter 周期价格矩阵的「指定 SKU 整表写入」能力（T4.7）。
 //
 // 与 CyclePriceWriter 的区别：那个是"按上游成本刷新商品级各周期价"（保留人工行），
-// 这个是"给某个 SKU 写它自己的周期价"（上游 SKU 维度展开时用：基准价 + 该组合加价）。
+// 这个是"给某个 SKU 写它自己的周期价"（按规格定价：基准周期价 + 该规格的配置加价）。
 // 刻意不合并成一个接口：两者语义与覆盖规则都不同，混用会让"谁覆盖谁"再次变模糊。
 type CyclePriceMatrixWriter interface {
 	// SaveSpecPrices 写入某 SKU 的周期价行（specID != 0）。
 	SaveSpecPrices(ctx context.Context, productID, specID uint64, rows []CyclePriceRow) error
 }
 
-// CyclePriceReader 周期价格矩阵读取能力（T4.8）：上游 SKU 展开需要拿基准周期价。
+// CyclePriceReader 周期价格矩阵读取能力（T4.7）：按规格定价需要拿基准周期价。
 type CyclePriceReader interface {
 	// ListPrices 取 (商品, SKU) 的周期价行；specID=0 表示商品级。
 	ListPrices(ctx context.Context, productID, specID uint64) ([]CyclePriceRow, error)
@@ -402,9 +396,9 @@ type productService struct {
 	bindingWriter SpecBindingWriter
 	// cycleWriter 用于上游调价确认后按周期重算矩阵（doc25 §5）
 	cycleWriter CyclePriceWriter
-	// cycleMatrixWriter 给指定 SKU 写周期价（上游 SKU 维度展开，T4.8）
+	// cycleMatrixWriter 给指定 SKU 写周期价（自营按规格定价，T4.7）
 	cycleMatrixWriter CyclePriceMatrixWriter
-	// cycleMatrixReader 读基准周期价（上游 SKU 维度展开算价基数，T4.8）
+	// cycleMatrixReader 读基准周期价（按规格定价的算价基数，T4.7）
 	cycleMatrixReader CyclePriceReader
 	// renewalSyncer 把周期价同步到已开通实例的续费绑定（装配层注入，可为 nil）
 	renewalSyncer RenewalPriceSyncer
@@ -444,12 +438,12 @@ func (s *productService) SetCyclePriceWriter(w CyclePriceWriter) {
 	s.cycleWriter = w
 }
 
-// SetCyclePriceMatrixWriter 注入「指定 SKU 写周期价」能力（T4.8 上游 SKU 维度展开）。
+// SetCyclePriceMatrixWriter 注入「指定 SKU 写周期价」能力（自营按规格定价，T4.7）。
 func (s *productService) SetCyclePriceMatrixWriter(w CyclePriceMatrixWriter) {
 	s.cycleMatrixWriter = w
 }
 
-// SetCyclePriceReader 注入「读基准周期价」能力（T4.8）。
+// SetCyclePriceReader 注入「读基准周期价」能力（按规格定价的算价基数，T4.7）。
 func (s *productService) SetCyclePriceReader(r CyclePriceReader) {
 	s.cycleMatrixReader = r
 }
@@ -2500,17 +2494,10 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 	if err != nil || len(rows) == 0 {
 		return selections
 	}
-	axisKeys := s.axisKeysForProduct(ctx, productID)
 	allowed := make(map[string]configSelectionRule, len(rows))
 	for _, row := range rows {
 		// 上游单值固定配置项不是客户可选项，不接受任何选择（锁定守卫另有兜底）。
 		if row.Source == model.ConfigSourceUpstream && !customerSelectableUpstream(row) {
-			continue
-		}
-		// 已作为 SKU 维度的参数不接受客户覆盖（T4.8）：它的取值由所选规格决定，
-		// SKU 的 pin 已写进 configoption；放行会让客户选择覆盖 pin，
-		// 出现"买 8 核规格、按 4 核开通"。与 CustomerOptions 的排除口径一致。
-		if row.Source == model.ConfigSourceUpstream && axisKeys[upstreamOptionKey(row.OptionName)] {
 			continue
 		}
 		key := customerOptionKey(row)

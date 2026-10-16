@@ -40,7 +40,7 @@ func (h *SpecHandler) SetOptionService(svc service.SpecOptionService) {
 // @Param status query int false "状态"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecTemplateListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/templates [get]
 func (h *SpecHandler) ListTemplates(c *gin.Context) {
@@ -62,7 +62,7 @@ func (h *SpecHandler) ListTemplates(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Security BearerAuth
 // @Param request body dto.SpecTemplateRequest true "规格模板参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecTemplateInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/templates [post]
 func (h *SpecHandler) CreateTemplate(c *gin.Context) {
@@ -83,7 +83,7 @@ func (h *SpecHandler) CreateTemplate(c *gin.Context) {
 // @Summary 查询规格模板详情
 // @Tags 产品管理-规格
 // @Param id path int true "规格模板 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecTemplateInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/templates/{id} [get]
 func (h *SpecHandler) GetTemplate(c *gin.Context) {
@@ -104,7 +104,7 @@ func (h *SpecHandler) GetTemplate(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Param id path int true "规格模板 ID"
 // @Param request body dto.SpecTemplateRequest true "规格模板参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecTemplateInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/templates/{id} [put]
 func (h *SpecHandler) UpdateTemplate(c *gin.Context) {
@@ -155,7 +155,7 @@ func (h *SpecHandler) DeleteTemplate(c *gin.Context) {
 // @Param status query int false "状态"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecMappingListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/mappings [get]
 func (h *SpecHandler) ListMappings(c *gin.Context) {
@@ -177,7 +177,7 @@ func (h *SpecHandler) ListMappings(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Security BearerAuth
 // @Param request body dto.SpecMappingRequest true "规格映射参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecMappingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/mappings [post]
 func (h *SpecHandler) CreateMapping(c *gin.Context) {
@@ -198,7 +198,7 @@ func (h *SpecHandler) CreateMapping(c *gin.Context) {
 // @Summary 查询规格映射详情
 // @Tags 产品管理-规格
 // @Param id path int true "规格映射 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecMappingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/mappings/{id} [get]
 func (h *SpecHandler) GetMapping(c *gin.Context) {
@@ -219,7 +219,7 @@ func (h *SpecHandler) GetMapping(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Param id path int true "规格映射 ID"
 // @Param request body dto.SpecMappingRequest true "规格映射参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecMappingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/mappings/{id} [put]
 func (h *SpecHandler) UpdateMapping(c *gin.Context) {
@@ -245,7 +245,7 @@ func (h *SpecHandler) UpdateMapping(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Param id path int true "规格映射 ID"
 // @Param request body dto.SpecMappingBindRequest true "绑定参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecMappingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/mappings/{id}/bind [post]
 func (h *SpecHandler) BindMapping(c *gin.Context) {
@@ -341,7 +341,7 @@ func (h *SpecHandler) ListExternalSpecs(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Security BearerAuth
 // @Param request body dto.ExternalSpecUpsertRequest true "外部规格"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ExternalSpecInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/external-specs [post]
 func (h *SpecHandler) UpsertExternalSpec(c *gin.Context) {
@@ -393,7 +393,7 @@ func (h *SpecHandler) ListBindings(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Security BearerAuth
 // @Param request body dto.SpecBindingUpsertRequest true "绑定参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecBindingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/bindings [post]
 func (h *SpecHandler) UpsertBinding(c *gin.Context) {
@@ -416,7 +416,7 @@ func (h *SpecHandler) UpsertBinding(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "绑定 ID"
 // @Param request body dto.SpecBindingConfirmRequest true "确认参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecBindingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/spec/bindings/{id}/confirm [post]
 func (h *SpecHandler) ConfirmBinding(c *gin.Context) {

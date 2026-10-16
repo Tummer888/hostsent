@@ -23,7 +23,7 @@ func NewRefundPolicyHandler(policyService service.RefundPolicyService) *RefundPo
 // @Summary 查询退款策略列表
 // @Tags 订单管理-退款策略
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundPolicyListResponse "成功"
 // @Router /api/v1/admin/orders/refund-policies [get]
 func (h *RefundPolicyHandler) List(c *gin.Context) {
 	resp, err := h.policyService.List(c.Request.Context())
@@ -39,7 +39,7 @@ func (h *RefundPolicyHandler) List(c *gin.Context) {
 // @Tags 订单管理-退款策略
 // @Security BearerAuth
 // @Param request body dto.RefundPolicyRequest true "策略参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundPolicyInfo "成功"
 // @Router /api/v1/admin/orders/refund-policies [post]
 func (h *RefundPolicyHandler) Create(c *gin.Context) {
 	var req dto.RefundPolicyRequest
@@ -61,7 +61,7 @@ func (h *RefundPolicyHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "策略 ID"
 // @Param request body dto.RefundPolicyRequest true "策略参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundPolicyInfo "成功"
 // @Router /api/v1/admin/orders/refund-policies/{id} [put]
 func (h *RefundPolicyHandler) Update(c *gin.Context) {
 	id, ok := pathID(c, "id")

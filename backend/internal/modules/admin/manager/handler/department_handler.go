@@ -29,7 +29,7 @@ func NewDepartmentHandler(svc service.DepartmentService) *DepartmentHandler {
 // @Tags 管理端-员工组织
 // @Security BearerAuth
 // @Param request body dto.DepartmentSaveRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.DepartmentListResponse "成功"
 // @Router /api/v1/admin/departments [get]
 func (h *DepartmentHandler) List(c *gin.Context) {
 	var query dto.DepartmentListQuery
@@ -51,7 +51,7 @@ func (h *DepartmentHandler) List(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body dto.DepartmentSaveRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.DepartmentInfo "成功"
 // @Router /api/v1/admin/departments/{id} [get]
 func (h *DepartmentHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -73,7 +73,7 @@ func (h *DepartmentHandler) Get(c *gin.Context) {
 // @Tags 管理端-员工组织
 // @Security BearerAuth
 // @Param request body dto.DepartmentSaveRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.DepartmentInfo "成功"
 // @Router /api/v1/admin/departments [post]
 func (h *DepartmentHandler) Create(c *gin.Context) {
 	var req dto.DepartmentSaveRequest
@@ -96,7 +96,7 @@ func (h *DepartmentHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body dto.DepartmentSaveRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.DepartmentInfo "成功"
 // @Router /api/v1/admin/departments/{id} [put]
 func (h *DepartmentHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

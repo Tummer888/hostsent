@@ -44,7 +44,7 @@ func (h *PermissionHandler) Tree(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.PermissionCreateRequest true "权限参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PermissionNode "成功"
 //
 //	@Router /api/v1/admin/permissions [post]
 func (h *PermissionHandler) CreatePermission(c *gin.Context) {
@@ -69,7 +69,7 @@ func (h *PermissionHandler) CreatePermission(c *gin.Context) {
 // @Produce json
 // @Param id path int true "权限ID"
 // @Param request body dto.PermissionUpdateRequest true "权限参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PermissionNode "成功"
 //
 //	@Router /api/v1/admin/permissions/{id} [put]
 func (h *PermissionHandler) UpdatePermission(c *gin.Context) {

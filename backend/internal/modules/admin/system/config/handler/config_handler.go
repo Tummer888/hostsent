@@ -35,7 +35,7 @@ func NewConfigHandler(configService service.ConfigService) *ConfigHandler {
 // @Param keyword query string false "关键字（匹配配置键/描述）"
 // @Param page query int false "页码，默认 1"
 // @Param page_size query int false "每页条数，默认 10，最大 100"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ConfigListResponse "成功"
 // @Router /api/v1/admin/system/configs [get]
 func (h *ConfigHandler) List(c *gin.Context) {
 	var query dto.ConfigListQuery
@@ -66,7 +66,7 @@ func (h *ConfigHandler) List(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param key path string true "配置键"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ConfigInfo "成功"
 // @Router /api/v1/admin/system/configs/{key} [get]
 func (h *ConfigHandler) GetByKey(c *gin.Context) {
 	config, err := h.configService.GetByKey(c.Request.Context(), c.Param("key"))
@@ -84,7 +84,7 @@ func (h *ConfigHandler) GetByKey(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.ConfigCreateRequest true "配置参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ConfigInfo "成功"
 // @Router /api/v1/admin/system/configs [post]
 func (h *ConfigHandler) Create(c *gin.Context) {
 	var req dto.ConfigCreateRequest
@@ -109,7 +109,7 @@ func (h *ConfigHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "配置ID"
 // @Param request body dto.ConfigUpdateRequest true "配置参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ConfigInfo "成功"
 // @Router /api/v1/admin/system/configs/{id} [put]
 func (h *ConfigHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)

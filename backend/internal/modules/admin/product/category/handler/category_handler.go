@@ -23,7 +23,7 @@ func NewCategoryHandler(categoryService service.CategoryService) *CategoryHandle
 // @Summary 查询分类树
 // @Tags 产品管理-分类
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CategoryListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/categories [get]
 func (h *CategoryHandler) List(c *gin.Context) {
@@ -45,7 +45,7 @@ func (h *CategoryHandler) List(c *gin.Context) {
 // @Tags 产品管理-分类
 // @Security BearerAuth
 // @Param request body dto.CategoryCreateRequest true "分类参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CategoryInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/categories [post]
 func (h *CategoryHandler) Create(c *gin.Context) {
@@ -66,7 +66,7 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 // @Summary 查询分类详情
 // @Tags 产品管理-分类
 // @Param id path int true "分类 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CategoryInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/categories/{id} [get]
 func (h *CategoryHandler) Get(c *gin.Context) {
@@ -87,7 +87,7 @@ func (h *CategoryHandler) Get(c *gin.Context) {
 // @Tags 产品管理-分类
 // @Param id path int true "分类 ID"
 // @Param request body dto.CategoryUpdateRequest true "分类参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CategoryInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/categories/{id} [put]
 func (h *CategoryHandler) Update(c *gin.Context) {

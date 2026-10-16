@@ -26,7 +26,7 @@ func NewPricingHandler(pricingService service.PricingService) *PricingHandler {
 // @Param product_id query int false "商品 ID"
 // @Param billing_mode query string false "计费模式"
 // @Param status query int false "状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PricingListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/pricing [get]
 func (h *PricingHandler) List(c *gin.Context) {
@@ -48,7 +48,7 @@ func (h *PricingHandler) List(c *gin.Context) {
 // @Tags 产品管理-定价
 // @Security BearerAuth
 // @Param request body dto.PricingRequest true "价格策略参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PricingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/pricing [post]
 func (h *PricingHandler) Create(c *gin.Context) {
@@ -69,7 +69,7 @@ func (h *PricingHandler) Create(c *gin.Context) {
 // @Summary 查询价格策略详情
 // @Tags 产品管理-定价
 // @Param id path int true "价格策略 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PricingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/pricing/{id} [get]
 func (h *PricingHandler) Get(c *gin.Context) {
@@ -90,7 +90,7 @@ func (h *PricingHandler) Get(c *gin.Context) {
 // @Tags 产品管理-定价
 // @Param id path int true "价格策略 ID"
 // @Param request body dto.PricingRequest true "价格策略参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PricingInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/pricing/{id} [put]
 func (h *PricingHandler) Update(c *gin.Context) {

@@ -37,7 +37,7 @@ func (h *RefundHandler) SetAttachmentService(svc service.RefundAttachmentService
 // @Param status query string false "退款状态"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds [get]
 func (h *RefundHandler) List(c *gin.Context) {
@@ -59,7 +59,7 @@ func (h *RefundHandler) List(c *gin.Context) {
 // @Tags 订单管理-退款
 // @Security BearerAuth
 // @Param id path int true "退款单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/{id} [get]
 func (h *RefundHandler) Get(c *gin.Context) {
@@ -81,7 +81,7 @@ func (h *RefundHandler) Get(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "退款单 ID"
 // @Param request body dto.RefundApproveRequest false "审核备注"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/{id}/approve [post]
 func (h *RefundHandler) Approve(c *gin.Context) {
@@ -106,7 +106,7 @@ func (h *RefundHandler) Approve(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "退款单 ID"
 // @Param request body dto.RefundApproveRequest false "驳回备注"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/{id}/reject [post]
 func (h *RefundHandler) Reject(c *gin.Context) {
@@ -131,7 +131,7 @@ func (h *RefundHandler) Reject(c *gin.Context) {
 // @Tags 订单管理-退款
 // @Security BearerAuth
 // @Param request body dto.BatchRefundAuditRequest true "退款单 ID 集合与审核备注"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/batch-approve [post]
 func (h *RefundHandler) BatchApprove(c *gin.Context) {
@@ -154,7 +154,7 @@ func (h *RefundHandler) BatchApprove(c *gin.Context) {
 // @Tags 订单管理-退款
 // @Security BearerAuth
 // @Param request body dto.BatchRefundAuditRequest true "退款单 ID 集合与审核备注"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/batch-reject [post]
 func (h *RefundHandler) BatchReject(c *gin.Context) {
@@ -178,7 +178,7 @@ func (h *RefundHandler) BatchReject(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "退款单 ID"
 // @Param request body dto.RefundReviewRequest false "复核结论"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/{id}/review [post]
 func (h *RefundHandler) Review(c *gin.Context) {
@@ -204,7 +204,7 @@ func (h *RefundHandler) Review(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "退款单 ID"
 // @Param file formData file true "凭据文件"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundAttachmentInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/refunds/{id}/attachments [post]
 func (h *RefundHandler) UploadAttachment(c *gin.Context) {

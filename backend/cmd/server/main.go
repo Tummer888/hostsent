@@ -12,7 +12,7 @@
 // @Version 2.1.0
 // @Description HostSent 后端接口文档（原生 OpenAPI 3，由 handler 注解生成）。三条独立前缀：/api/v1/admin/*（管理端，Bearer 管理员 JWT）、/api/v1/uc/*（用户控制台，Bearer 用户 JWT）、/open/v1/*（开放平台，签名鉴权）。除导出类接口外一律返回 {code, message, data, timestamp} 信封，code==0 为成功。
 // @BasePath /
-// 开放平台签名定义暂缺（swag v2.0.0-rc6 的 OAS3 模式只注册第一个 securitydefinitions，升级正式版后补第二定义）
+// OpenSignature 由 scripts/patch_openapi.py 在生成后注入（swag v2.0.0 OAS3 模式仍只注册第一个 securitydefinitions）
 // @securitydefinitions.apikey BearerAuth
 // @in header
 // @name Authorization

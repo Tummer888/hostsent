@@ -29,7 +29,7 @@ func NewReferralHandler(invite service.InviteService, withdraw service.Withdrawa
 // @Param type query string false "台账类型"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CashbackListResponse "成功"
 // @Router /api/v1/admin/referral/cashbacks [get]
 func (h *ReferralHandler) Cashbacks(c *gin.Context) {
 	var query dto.LedgerQuery
@@ -57,7 +57,7 @@ type inviteeQuery struct {
 // @Tags 推广返现
 // @Security BearerAuth
 // @Param inviter_user_id query int true "邀请人用户 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InviteeListResponse "成功"
 // @Router /api/v1/admin/referral/invitees [get]
 func (h *ReferralHandler) Invitees(c *gin.Context) {
 	var query inviteeQuery
@@ -79,7 +79,7 @@ func (h *ReferralHandler) Invitees(c *gin.Context) {
 // @Security BearerAuth
 // @Param user_id query int false "用户 ID"
 // @Param status query string false "状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawalListResponse "成功"
 // @Router /api/v1/admin/referral/withdrawals [get]
 func (h *ReferralHandler) Withdrawals(c *gin.Context) {
 	var query dto.WithdrawalQuery
@@ -100,7 +100,7 @@ func (h *ReferralHandler) Withdrawals(c *gin.Context) {
 // @Tags 推广返现
 // @Security BearerAuth
 // @Param id path int true "提现单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawalInfo "成功"
 // @Router /api/v1/admin/referral/withdrawals/{id}/approve [post]
 func (h *ReferralHandler) Approve(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -123,7 +123,7 @@ func (h *ReferralHandler) Approve(c *gin.Context) {
 // @Tags 推广返现
 // @Security BearerAuth
 // @Param id path int true "提现单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawalInfo "成功"
 // @Router /api/v1/admin/referral/withdrawals/{id}/reject [post]
 func (h *ReferralHandler) Reject(c *gin.Context) {
 	id, ok := pathID(c, "id")

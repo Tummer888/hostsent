@@ -30,7 +30,7 @@ func NewSyncHandler(syncService service.SyncService) *SyncHandler {
 // @Param status query string false "状态"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SyncTaskListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/sync/tasks [get]
 func (h *SyncHandler) ListTasks(c *gin.Context) {
@@ -51,7 +51,7 @@ func (h *SyncHandler) ListTasks(c *gin.Context) {
 // @Summary 触发同步任务
 // @Tags 资源管理-同步
 // @Param request body dto.CreateSyncTaskRequest true "同步参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SyncTaskInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/sync [post]
 func (h *SyncHandler) CreateTask(c *gin.Context) {
@@ -72,7 +72,7 @@ func (h *SyncHandler) CreateTask(c *gin.Context) {
 // @Summary 查询同步任务详情
 // @Tags 资源管理-同步
 // @Param id path int true "任务 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SyncTaskInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/sync/tasks/{id} [get]
 func (h *SyncHandler) GetTask(c *gin.Context) {
@@ -97,7 +97,7 @@ func (h *SyncHandler) GetTask(c *gin.Context) {
 // @Param status query string false "状态"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SyncLogListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/sync/logs [get]
 func (h *SyncHandler) ListLogs(c *gin.Context) {
@@ -124,7 +124,7 @@ func (h *SyncHandler) ListLogs(c *gin.Context) {
 // @Param keyword query string false "关键字"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InstanceListResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/instances [get]
 func (h *SyncHandler) ListInstances(c *gin.Context) {
@@ -145,7 +145,7 @@ func (h *SyncHandler) ListInstances(c *gin.Context) {
 // @Summary 查询实例详情
 // @Tags 资源管理-同步
 // @Param id path int true "实例 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InstanceInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/instances/{id} [get]
 func (h *SyncHandler) GetInstance(c *gin.Context) {

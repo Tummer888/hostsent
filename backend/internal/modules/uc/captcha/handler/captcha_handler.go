@@ -33,7 +33,7 @@ func NewPublicHandler(svc *service.Service) *PublicHandler {
 // @Summary 登录方式配置
 // @Tags 前台公开
 // @Security BearerAuth
-// @Success 200 {string} string "ok"
+// @Success 200 {object} dto.AuthConfigResponse "成功"
 // @Router /api/v1/public/auth-config [get]
 // AuthConfig `/public/auth-config`：前端据此决定是否渲染验证码。
 //

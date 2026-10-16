@@ -57,7 +57,7 @@ func (h *ProductHandler) List(c *gin.Context) {
 // @Tags 产品管理-商品
 // @Security BearerAuth
 // @Param request body dto.ProductCreateRequest true "商品参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products [post]
 func (h *ProductHandler) Create(c *gin.Context) {
@@ -86,7 +86,7 @@ func (h *ProductHandler) Create(c *gin.Context) {
 // @Tags 产品管理-商品
 // @Security BearerAuth
 // @Param request body dto.ProductCloneRequest true "克隆参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/clone [post]
 func (h *ProductHandler) CloneFromUpstream(c *gin.Context) {
@@ -109,7 +109,7 @@ func (h *ProductHandler) CloneFromUpstream(c *gin.Context) {
 // @Tags 产品管理-商品
 // @Security BearerAuth
 // @Param request body dto.ProductBatchCloneRequest true "批量克隆参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductBatchCloneResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/clone/batch [post]
 func (h *ProductHandler) BatchCloneFromUpstream(c *gin.Context) {
@@ -133,7 +133,7 @@ func (h *ProductHandler) BatchCloneFromUpstream(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductSpecPassthroughRequest true "开关"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id}/spec-passthrough [post]
 func (h *ProductHandler) SetSpecPassthrough(c *gin.Context) {
@@ -162,7 +162,7 @@ func (h *ProductHandler) SetSpecPassthrough(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductRenewalPriceSyncRequest true "同步参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RenewalPriceSyncResult "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id}/sync-renewal-price [post]
 func (h *ProductHandler) SyncRenewalPrices(c *gin.Context) {
@@ -272,7 +272,7 @@ func (h *ProductHandler) ApplyUpstreamMarkup(c *gin.Context) {
 // @Summary 查询商品详情
 // @Tags 产品管理-商品
 // @Param id path int true "商品 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id} [get]
 func (h *ProductHandler) Get(c *gin.Context) {
@@ -293,7 +293,7 @@ func (h *ProductHandler) Get(c *gin.Context) {
 // @Tags 产品管理-商品
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductUpdateRequest true "商品参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id} [put]
 func (h *ProductHandler) Update(c *gin.Context) {
@@ -339,7 +339,7 @@ func (h *ProductHandler) Delete(c *gin.Context) {
 // @Summary 上架商品
 // @Tags 产品管理-商品
 // @Param id path int true "商品 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id}/publish [post]
 func (h *ProductHandler) Publish(c *gin.Context) {
@@ -360,7 +360,7 @@ func (h *ProductHandler) Publish(c *gin.Context) {
 // @Summary 下架商品
 // @Tags 产品管理-商品
 // @Param id path int true "商品 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id}/unpublish [post]
 func (h *ProductHandler) Unpublish(c *gin.Context) {
@@ -382,7 +382,7 @@ func (h *ProductHandler) Unpublish(c *gin.Context) {
 // @Tags 产品管理-商品
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductPriceRequest true "价格参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id}/price [put]
 func (h *ProductHandler) UpdatePrice(c *gin.Context) {
@@ -409,7 +409,7 @@ func (h *ProductHandler) UpdatePrice(c *gin.Context) {
 // @Tags 产品管理-商品
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductFeaturedRequest true "推荐参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/products/{id}/featured [post]
 func (h *ProductHandler) SetFeatured(c *gin.Context) {
@@ -477,7 +477,7 @@ func (h *ProductHandler) ListSpecs(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductSpecRequest true "规格参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductSpecInfo "成功"
 // @Router /api/v1/admin/product/products/{id}/specs [post]
 func (h *ProductHandler) CreateSpec(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -504,7 +504,7 @@ func (h *ProductHandler) CreateSpec(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "商品 ID"
 // @Param request body dto.SpecTemplateGenerateRequest true "生成参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SpecTemplateGenerateResult "成功"
 // @Router /api/v1/admin/product/products/{id}/specs/generate [post]
 func (h *ProductHandler) GenerateSpecFromTemplate(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -532,7 +532,7 @@ func (h *ProductHandler) GenerateSpecFromTemplate(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Param specId path int true "规格 ID"
 // @Param request body dto.ProductSpecRequest true "规格参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ProductSpecInfo "成功"
 // @Router /api/v1/admin/product/products/{id}/specs/{specId} [put]
 func (h *ProductHandler) UpdateSpec(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -647,72 +647,4 @@ func specError(err error) *apperrors.AppError {
 	default:
 		return apperrors.New(50001, err.Error())
 	}
-}
-
-// UpstreamAxisOptions godoc
-// @Summary 查询上游商品的 SKU 维度设置（可做维度的配置项 + 当前选择 + 组合数）
-// @Tags 产品管理-商品
-// @Security BearerAuth
-// @Param id path int true "商品 ID"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/products/{id}/upstream-axes [get]
-func (h *ProductHandler) UpstreamAxisOptions(c *gin.Context) {
-	id, ok := pathID(c, "id")
-	if !ok {
-		return
-	}
-	resp, err := h.productService.UpstreamAxisOptions(c.Request.Context(), id)
-	if err != nil {
-		response.Error(c, apperrors.New(50001, err.Error()))
-		return
-	}
-	response.Success(c, resp)
-}
-
-// SaveUpstreamAxisOptions godoc
-// @Summary 保存上游商品的 SKU 维度选择（不立即生成规格）
-// @Tags 产品管理-商品
-// @Security BearerAuth
-// @Param id path int true "商品 ID"
-// @Param request body dto.UpstreamAxisSaveRequest true "维度选择"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/products/{id}/upstream-axes [put]
-func (h *ProductHandler) SaveUpstreamAxisOptions(c *gin.Context) {
-	id, ok := pathID(c, "id")
-	if !ok {
-		return
-	}
-	var req dto.UpstreamAxisSaveRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperrors.New(40001, "参数错误"))
-		return
-	}
-	operatorID, operatorName := operatorFromContext(c)
-	resp, err := h.productService.SaveUpstreamAxisOptions(c.Request.Context(), id, req, operatorID, operatorName)
-	if err != nil {
-		response.Error(c, apperrors.New(50001, err.Error()))
-		return
-	}
-	response.Success(c, resp)
-}
-
-// GenerateUpstreamAxisSpecs godoc
-// @Summary 按已保存的 SKU 维度展开生成规格（幂等，可重复执行）
-// @Tags 产品管理-商品
-// @Security BearerAuth
-// @Param id path int true "商品 ID"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/products/{id}/upstream-axes/generate [post]
-func (h *ProductHandler) GenerateUpstreamAxisSpecs(c *gin.Context) {
-	id, ok := pathID(c, "id")
-	if !ok {
-		return
-	}
-	operatorID, operatorName := operatorFromContext(c)
-	resp, err := h.productService.GenerateUpstreamAxisSpecs(c.Request.Context(), id, operatorID, operatorName)
-	if err != nil {
-		response.Error(c, apperrors.New(50001, err.Error()))
-		return
-	}
-	response.Success(c, resp)
 }

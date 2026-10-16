@@ -74,7 +74,7 @@ func NewExpiringHandler(lifecycleSvc lifecycleservice.LifecycleService) *Expirin
 // @Param keyword query string false "实例标识/实例名/用户名"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.ExpiringListResponse "成功"
 // @Router /api/v1/admin/instances/expiring [get]
 func (h *ExpiringHandler) List(c *gin.Context) {
 	var query lifecycledto.ExpiringListQuery
@@ -180,7 +180,7 @@ func (h *LifecycleAdminHandler) RenewAdmin(c *gin.Context) {
 // @Summary 查询生命周期策略
 // @Tags 生命周期管理-策略
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.PolicyResponse "成功"
 // @Router /api/v1/admin/lifecycle/policy [get]
 func (h *LifecycleAdminHandler) GetPolicy(c *gin.Context) {
 	resp, err := h.lifecycleSvc.GetPolicy(c.Request.Context())
@@ -196,7 +196,7 @@ func (h *LifecycleAdminHandler) GetPolicy(c *gin.Context) {
 // @Tags 生命周期管理-策略
 // @Security BearerAuth
 // @Param body body lifecycledto.PolicyUpdateRequest true "策略更新请求"
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.PolicyResponse "成功"
 // @Router /api/v1/admin/lifecycle/policy [put]
 func (h *LifecycleAdminHandler) UpdatePolicy(c *gin.Context) {
 	var req lifecycledto.PolicyUpdateRequest
@@ -230,7 +230,7 @@ func (h *LifecycleAdminHandler) ScanOnce(c *gin.Context) {
 // @Summary 到期处置预演报告
 // @Tags 生命周期管理-到期处置
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.EnforcementPreviewResponse "成功"
 // @Router /api/v1/admin/lifecycle/enforcement/preview [get]
 func (h *LifecycleAdminHandler) PreviewEnforcement(c *gin.Context) {
 	resp, err := h.lifecycleSvc.PreviewEnforcement(c.Request.Context())

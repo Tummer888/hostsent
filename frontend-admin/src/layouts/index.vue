@@ -35,10 +35,6 @@
       <aside class="menu-sidebar" :class="{ 'is-closed': sidebarCollapsed }">
         <div class="menu-header">
           <span class="menu-header__title">{{ currentGroup?.name || '菜单' }}</span>
-          <button class="menu-collapse-btn" :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'" @click="toggleSidebar">
-            <ChevronRightIcon v-if="sidebarCollapsed" size="16" />
-            <ChevronLeftIcon v-else size="16" />
-          </button>
           <!-- 移动端专用：关闭抽屉菜单 -->
           <button class="menu-close-btn" title="关闭菜单" aria-label="关闭菜单" @click="mobileSidebarOpen = false">
             <CloseIcon size="16" />
@@ -110,6 +106,21 @@
             </li>
           </template>
         </ul>
+
+        <!-- 收缩/展开菜单：PC 端放在菜单栏右下角。
+             原位置在菜单栏标题右侧（右上角），与标题抢同一行、且离菜单主体远，
+             鼠标每次都要回到顶部才能收起；放到底部后「点完内容顺手收起」是一次自然的下移。 -->
+        <div class="menu-footer">
+          <button
+            class="menu-collapse-btn"
+            :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'"
+            :aria-label="sidebarCollapsed ? '展开菜单' : '收缩菜单'"
+            @click="toggleSidebar"
+          >
+            <ChevronRightIcon v-if="sidebarCollapsed" size="16" />
+            <ChevronLeftIcon v-else size="16" />
+          </button>
+        </div>
       </aside>
     </div>
 
@@ -121,6 +132,38 @@
           <button class="mobile-menu-btn" aria-label="菜单" @click="mobileSidebarOpen = true">
             <MenuIcon size="20" />
           </button>
+
+          <!-- 返回上一页：与浏览器后退同一个语义（走 history.back，不是固定跳某一页），
+               因此「列表 → 详情」「创建订单 → 详情」这类链路的返回目标都由来路决定，
+               不需要各页各配一个返回地址。无历史可退时按钮禁用并给出提示。 -->
+          <t-tooltip :content="canGoBack ? '返回上一页' : '没有可返回的上一页'" placement="bottom">
+            <button class="nav-back-btn" type="button" aria-label="返回上一页" :disabled="!canGoBack" @click="goBack">
+              <ChevronLeftIcon size="18" />
+            </button>
+          </t-tooltip>
+
+          <!-- 面包屑：首页 / 一级域 / 二级分组 / 当前页 -->
+          <nav class="nav-breadcrumb" aria-label="面包屑">
+            <template v-for="(crumb, idx) in breadcrumb.items" :key="crumb.title + idx">
+              <span v-if="idx > 0" class="nav-breadcrumb__sep" aria-hidden="true">/</span>
+              <a
+                v-if="crumb.path && idx < breadcrumb.items.length - 1"
+                class="nav-breadcrumb__item nav-breadcrumb__item--link"
+                :href="crumb.path"
+                @click.prevent="switchTo(crumb.path)"
+              >
+                {{ crumb.title }}
+              </a>
+              <span
+                v-else
+                class="nav-breadcrumb__item"
+                :class="{ 'nav-breadcrumb__item--current': idx === breadcrumb.items.length - 1 }"
+                :aria-current="idx === breadcrumb.items.length - 1 ? 'page' : undefined"
+              >
+                {{ crumb.title }}
+              </span>
+            </template>
+          </nav>
         </div>
         <div class="top-header__right">
           <!-- 导航搜索框 -->
@@ -331,6 +374,7 @@ import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getAdminUnreadCount } from '@/api/notification'
+import { resolveBreadcrumb } from '@/composables/useBreadcrumb'
 import { navMenu } from '@/permission'
 import { prefetchRoute } from '@/router/prefetch'
 import { useBrandStore } from '@/store/modules/brand'
@@ -604,6 +648,29 @@ function switchTo(path?: string) {
 
 function gotoFirstResult() {
   switchTo(navResults.value[0]?.path)
+}
+
+// ---- 面包屑 ----
+// 由路由 + 菜单树算出（见 composables/useBreadcrumb.ts 的说明），布局层统一提供，
+// 各页面无需自己写一份面包屑标记。
+const breadcrumb = computed(() => resolveBreadcrumb(route, sidebarItems.value))
+
+// ---- 返回上一页 ----
+// 用 history.back() 而不是「跳到某个固定页面」：返回目标由用户来路决定，
+// 「用户列表 → 用户详情」「创建订单 → 订单详情」都能回到真正来的那页。
+//
+// canGoBack 只看 history.state.position（vue-router 在 createWebHistory 下维护的
+// 会话内位置）：position > 0 说明本会话内确实后退过一步。不从 history.length 判断 ——
+// 新开标签页直接进详情页时 length 也可能 > 1（浏览器保留了上一站），
+// 那时 back() 会把用户送出本系统，属于「乱跳」。
+const canGoBack = computed(() => {
+  const position = (window.history.state as { position?: number } | null)?.position
+  return typeof position === 'number' && position > 0
+})
+
+function goBack() {
+  if (!canGoBack.value) return
+  router.back()
 }
 
 // ---- 全屏 ----
@@ -1145,6 +1212,19 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 
+/* 菜单栏底部：收缩/展开按钮（PC 端）。 */
+.menu-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px 4px;
+  flex-shrink: 0;
+}
+
+.menu-sidebar.is-closed .menu-footer {
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
 .menu-collapse-btn {
   width: 28px;
   height: 28px;
@@ -1324,6 +1404,78 @@ onMounted(() => {
 .top-header__left {
   display: flex;
   align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ===== 返回上一页 ===== */
+.nav-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.nav-back-btn:hover:not(:disabled) {
+  background: var(--td-brand-color-1);
+  border-color: var(--td-brand-color-2);
+  color: var(--color-primary);
+}
+
+/* 无历史可退时保持可见但禁用：直接隐藏会让工具条在首次进入时「少一个按钮」，
+   返回后多一个，位置跳动比置灰更让人困惑。 */
+.nav-back-btn:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* ===== 面包屑 ===== */
+.nav-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-muted-foreground);
+}
+
+.nav-breadcrumb__item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-breadcrumb__item--link {
+  color: var(--color-muted-foreground);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.nav-breadcrumb__item--link:hover {
+  color: var(--color-primary);
+}
+
+.nav-breadcrumb__sep {
+  color: var(--color-border);
+  flex-shrink: 0;
+}
+
+.nav-breadcrumb__item--current {
+  color: var(--color-foreground);
+  font-weight: 600;
 }
 
 .top-header__right {
@@ -1859,9 +2011,36 @@ onMounted(() => {
 .dark .menu-collapse-btn,
 .dark .menu-close-btn,
 .dark .sidebar-toggle,
-.dark .mobile-menu-btn {
+.dark .mobile-menu-btn,
+.dark .nav-back-btn {
   background: #161616;
   color: #d4d4d4;
+}
+
+.dark .nav-back-btn {
+  border-color: #262626;
+}
+
+.dark .nav-back-btn:hover:not(:disabled) {
+  background: #1f1f1f;
+  border-color: #333333;
+  color: var(--td-brand-color-4);
+}
+
+.dark .nav-back-btn:disabled {
+  color: #4b5563;
+}
+
+.dark .nav-breadcrumb__item--link:hover {
+  color: var(--td-brand-color-4);
+}
+
+.dark .nav-breadcrumb__item--current {
+  color: #e5e7eb;
+}
+
+.dark .nav-breadcrumb__sep {
+  color: #333333;
 }
 
 .dark .navbar-search__input {

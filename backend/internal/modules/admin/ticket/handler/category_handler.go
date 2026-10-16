@@ -39,7 +39,7 @@ func (h *CategoryHandler) List(c *gin.Context) {
 // @Tags 工单支持-分类
 // @Security BearerAuth
 // @Param request body dto.CategorySaveRequest true "分类参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CategoryInfo "成功"
 // @Router /api/v1/admin/ticket-categories [post]
 func (h *CategoryHandler) Create(c *gin.Context) {
 	var req dto.CategorySaveRequest
@@ -61,7 +61,7 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "分类 ID"
 // @Param request body dto.CategorySaveRequest true "分类参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CategoryInfo "成功"
 // @Router /api/v1/admin/ticket-categories/{id} [put]
 func (h *CategoryHandler) Update(c *gin.Context) {
 	id, ok := pathID(c, "id")

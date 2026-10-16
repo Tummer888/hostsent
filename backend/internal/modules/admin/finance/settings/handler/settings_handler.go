@@ -25,7 +25,7 @@ func NewSettingsHandler(settingsService service.SettingsService) *SettingsHandle
 // @Summary 财务参数列表（可写项 + 只读速查项）
 // @Tags 财务管理-参数
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SettingsListResponse "成功"
 // @Router /api/v1/admin/finance/settings [get]
 func (h *SettingsHandler) List(c *gin.Context) {
 	resp, err := h.settingsService.List(c.Request.Context())
@@ -41,7 +41,7 @@ func (h *SettingsHandler) List(c *gin.Context) {
 // @Tags 财务管理-参数
 // @Security BearerAuth
 // @Param request body dto.SettingsUpdateRequest true "参数键值"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.SettingsListResponse "成功"
 // @Router /api/v1/admin/finance/settings [put]
 func (h *SettingsHandler) Update(c *gin.Context) {
 	var req dto.SettingsUpdateRequest

@@ -174,8 +174,13 @@
 
         <!-- 档位信息 -->
         <template v-if="activeSection === 'basic'">
-          <!-- 6 个字段刚好排满两列三行；「系统盘基线」同时喂给 {disk} 占位符与
-               spec_values.storage.system.size，所以必须和 CPU/内存 放在一起改。 -->
+          <!--
+            只放"档位自己"的字段：平台、名称、排序、状态。
+            CPU/内存/系统盘/带宽**都是配置项**，一律在下面的配置项分组里配（含基线值与取值）——
+            同一个参数在档位信息和配置项两处各有一份输入，是"改了这边那边没变"的来源。
+            参考售价同样去掉：价格在建品时**逐规格**填（或建完在价格页维护），
+            档位里再放一个"参考价"只会多一处需要同步、且容易被误当成实际售价。
+          -->
           <div class="form-grid">
             <t-form-item label="对接平台" name="providerId">
               <t-select
@@ -188,24 +193,6 @@
             </t-form-item>
             <t-form-item label="档位名称" name="name">
               <t-input v-model="form.name" placeholder="如 2核4G / 入门型" />
-            </t-form-item>
-            <t-form-item label="系统盘（GB）" name="disk">
-              <t-input-number v-model="form.disk" :min="0" theme="column" :style="{ width: '100%' }" />
-            </t-form-item>
-            <t-form-item label="参考售价（元）" name="price">
-              <t-input-number
-                v-model="form.price"
-                :min="0"
-                :precision="2"
-                theme="column"
-                :style="{ width: '100%' }"
-                placeholder="必填，不能为 0"
-              />
-              <!-- 0 元价的真实风险：建品时它会成为 SKU 售价，误配上架后客户真能 0 元买。
-                   这里直接拦住，而不是等上架后才在价格矩阵里发现。 -->
-              <span v-if="!form.price || form.price <= 0" class="price-warn">
-                参考售价为 0：建品时该档位会生成 0 元 SKU，上架后客户可 0 元下单，请填写真实售价
-              </span>
             </t-form-item>
             <t-form-item label="排序" name="sort_order">
               <t-input-number
@@ -235,7 +222,7 @@
             </p>
           </t-form-item>
 
-          <t-form-item label="预置档位（一键填基线，再按需改）">
+          <t-form-item label="预置档位（一键填配置项，再按需改）">
             <t-space size="small" break-line>
               <t-button v-for="p in presets" :key="p.name" size="small" variant="outline" @click="applyPreset(p)">
                 {{ p.name }}
@@ -244,6 +231,10 @@
                 开放多选：CPU 2/4/8核 · 内存 4/8G
               </t-button>
             </t-space>
+            <p class="opt-row__help">
+              预置档位写入的是<b>配置项</b>（CPU / 内存 / 系统盘 / 带宽的基线值），不写档位本身
+              —— 档位只是"哪几个配置项开放给客户"的集合。
+            </p>
           </t-form-item>
 
           <div class="section-hint">
@@ -1164,6 +1155,23 @@ function baselineBw(): number {
   return Number.isFinite(v) && v > 0 ? v : 0
 }
 
+/**
+ * baselineDisk 取系统盘基线（GB）。
+ *
+ * 来源改为**配置项**（system_disk_size 的基线值）而不是档位信息的独立字段：
+ * 系统盘本来就是一个配置项，档位里再存一份就会出现两个真源 ——
+ * 运营在配置项里把系统盘设成 40G，档位字段还留着 100G，生成的规格取哪个都不对。
+ * 优先数量型项的基线值，其次它的区间下限。
+ */
+function baselineDisk(): number {
+  const row = rows.value.find((r) => r.spec.option_key === 'system_disk_size')
+  if (!row || !row.enabled) return 0
+  if (row.defaultNumber != null && row.defaultNumber > 0) return Number(row.defaultNumber)
+  // 未填基线时取区间下限：那是"最少给多少"，比 0 更接近运营意图。
+  if (row.rangeMin != null && Number(row.rangeMin) > 0) return Number(row.rangeMin)
+  return 0
+}
+
 function renderTemplate(tpl: string): string {
   if (!tpl) return ''
   const osLabel = (() => {
@@ -1175,7 +1183,7 @@ function renderTemplate(tpl: string): string {
   const vars: Record<string, string> = {
     '{cpu}': String(baselineCpu()),
     '{memory}': String(baselineMemoryGb()),
-    '{disk}': String(form.disk || 40),
+    '{disk}': String(baselineDisk() || 0),
     '{bw}': String(baselineBw()),
     '{os}': osLabel,
   }
@@ -1188,7 +1196,8 @@ const previewDesc = computed(() => renderTemplate(form.description_template))
 const previewCode = computed(() => {
   const parts: string[] = []
   parts.push(`${baselineCpu()}c${baselineMemoryGb()}g`)
-  if (form.disk > 0) parts.push(`${form.disk}g`)
+  const disk = baselineDisk()
+  if (disk > 0) parts.push(`${disk}g`)
   return `mfy-${parts.join('-')}`
 })
 const previewPlatformParams = computed(() => {
@@ -1197,6 +1206,9 @@ const previewPlatformParams = computed(() => {
 })
 
 function applyPreset(p: { name: string; cpu: string; memory: string; disk: number; bw: number }) {
+  // 预置档位写入的是**配置项**（CPU/内存/系统盘/带宽的基线），不写档位信息。
+  // 档位信息里只保留"档位自己"的字段（平台/名称/排序/状态）；
+  // 系统盘以前既在档位信息里有一列、又在配置项里有一项，两处都要改且会互相覆盖。
   for (const row of rows.value) {
     const key = row.spec.option_key
     if (key === 'cpu' && !isQtyOption(row.spec)) {
@@ -1209,7 +1221,16 @@ function applyPreset(p: { name: string; cpu: string; memory: string; disk: numbe
       row.default = p.memory
     }
   }
-  form.disk = p.disk
+  // 系统盘：作为数量型配置项的基线（与带宽同口径），而不是写档位字段。
+  const diskRow = rows.value.find(
+    (r) => r.spec.option_key === 'system_disk_size' || r.spec.option_key === 'data_disk_size',
+  )
+  if (diskRow && p.disk > 0) {
+    diskRow.enabled = true
+    diskRow.rangeMin = diskRow.rangeMin || p.disk
+    diskRow.rangeMax = diskRow.rangeMax || p.disk
+    diskRow.defaultNumber = p.disk
+  }
   form.name = form.name || p.name
   const bw = rows.value.find((r) => r.spec.option_key === 'bw')
   if (bw) {
@@ -1363,7 +1384,8 @@ function buildSpecValues(): Record<string, unknown> {
   const bw = baselineBw()
   if (cpu > 0) out['compute.cpu'] = cpu
   if (Number.isFinite(memMb) && memMb > 0) out['compute.memory'] = memMb
-  if (form.disk > 0) out['storage.system.size'] = form.disk
+  const disk = baselineDisk()
+  if (disk > 0) out['storage.system.size'] = disk
   if (bw > 0) out['network.bandwidth'] = bw
   if (platformParams.area) out['placement.region'] = platformParams.area
   return out
@@ -1529,12 +1551,6 @@ async function save() {
     MessagePlugin.warning('请选择对接平台')
     return
   }
-  // 0 元参考售价会变成 0 元 SKU，误上架后客户能 0 元下单 —— 拦住而不是事后补救。
-  if (!form.price || form.price <= 0) {
-    focusSection('basic')
-    MessagePlugin.warning('参考售价必须大于 0：0 元档位生成 0 元 SKU，上架后客户可 0 元下单')
-    return
-  }
   const platformParamsPayload = buildPlatformParams()
   if (platformParamsPayload === null) return
   const selections = buildOptionSelections()
@@ -1600,11 +1616,12 @@ async function save() {
     machine_kind: machineKind.value || '',
     cpu: baselineCpu(),
     memory: baselineMemoryGb(),
-    disk: form.disk,
+    // disk 传配置项派生值：后端 tpl.Disk 仍作为 spec_values 的回落来源，
+    // 但真源现在是 system_disk_size 配置项（与界面一致）。
+    disk: baselineDisk(),
     disk_type: form.disk_type,
     bandwidth: baselineBw(),
     os: form.os,
-    price: form.price,
     sort_order: form.sort_order,
     status: form.status,
     spec_values: buildSpecValues(),

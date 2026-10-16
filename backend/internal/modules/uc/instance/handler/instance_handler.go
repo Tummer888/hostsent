@@ -62,7 +62,7 @@ func (h *InstanceHandler) List(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path uint true "主机记录ID"
 // @Param live query bool false "是否刷新上游实时状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InstanceInfo "成功"
 // @Router /api/v1/uc/instances/{id} [get]
 func (h *InstanceHandler) Detail(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -92,7 +92,7 @@ func (h *InstanceHandler) Detail(c *gin.Context) {
 // @Tags 用户中心-主机
 // @Security BearerAuth
 // @Param id path uint true "主机记录ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.InstanceInfo "成功"
 // @Router /api/v1/uc/instances/{id}/provision-retry [post]
 func (h *InstanceHandler) RetryProvision(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -149,7 +149,7 @@ func (h *InstanceHandler) Power(c *gin.Context) {
 // @Tags 用户中心-主机
 // @Security BearerAuth
 // @Param id path uint true "主机记录ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.VNCResult "成功"
 // @Router /api/v1/uc/instances/{id}/vnc [post]
 func (h *InstanceHandler) VNC(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -237,7 +237,7 @@ func writeMaintenanceError(c *gin.Context, err error) {
 // @Security BearerAuth
 // @Param id path uint true "主机记录ID"
 // @Param body body dto.ReinstallRequest true "目标镜像与选项"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ReinstallResult "成功"
 // @Router /api/v1/uc/instances/{id}/reinstall [post]
 func (h *InstanceHandler) Reinstall(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -478,7 +478,7 @@ func (h *InstanceHandler) RestoreSnapshot(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path uint true "主机记录ID"
 // @Param limit query int false "返回条数（默认 20，最多 100）"
-// @Success 200 {object} response.Body
+// @Success 200 {array} dto.OperationEntry "操作流水"
 // @Router /api/v1/uc/instances/{id}/operations [get]
 func (h *InstanceHandler) Operations(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -506,7 +506,7 @@ func (h *InstanceHandler) Operations(c *gin.Context) {
 // @Tags 用户中心-主机
 // @Security BearerAuth
 // @Param id path uint true "主机记录ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.MetricsCatalogResponse "成功"
 // @Router /api/v1/uc/instances/{id}/metrics [get]
 func (h *InstanceHandler) MetricsCatalog(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -535,7 +535,7 @@ func (h *InstanceHandler) MetricsCatalog(c *gin.Context) {
 // @Param type query string true "监控类型：cpu/memory/disk/network"
 // @Param select query string false "子项（如磁盘设备名）"
 // @Param range query string false "时间窗：1h/6h/24h/7d（默认 6h）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.MetricsSeries "成功"
 // @Router /api/v1/uc/instances/{id}/metrics/series [get]
 func (h *InstanceHandler) MetricsSeries(c *gin.Context) {
 	userID, ok := currentUserID(c)

@@ -29,7 +29,7 @@ func NewWithdrawHandler(withdrawService service.WithdrawService) *WithdrawHandle
 // @Param end_time query string false "结束时间"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawListResponse "成功"
 // @Router /api/v1/admin/finance/withdrawals [get]
 func (h *WithdrawHandler) List(c *gin.Context) {
 	var query dto.WithdrawListQuery
@@ -51,7 +51,7 @@ func (h *WithdrawHandler) List(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "提现单 ID"
 // @Param request body dto.WithdrawAuditRequest true "审核说明"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawInfo "成功"
 // @Router /api/v1/admin/finance/withdrawals/{id}/approve [post]
 func (h *WithdrawHandler) Approve(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -78,7 +78,7 @@ func (h *WithdrawHandler) Approve(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "提现单 ID"
 // @Param request body dto.WithdrawAuditRequest true "审核说明"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawInfo "成功"
 // @Router /api/v1/admin/finance/withdrawals/{id}/reject [post]
 func (h *WithdrawHandler) Reject(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -105,7 +105,7 @@ func (h *WithdrawHandler) Reject(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "提现单 ID"
 // @Param request body dto.WithdrawPayoutRequest true "打款登记参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawInfo "成功"
 // @Router /api/v1/admin/finance/withdrawals/{id}/mark-paid [post]
 func (h *WithdrawHandler) MarkPaid(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -132,7 +132,7 @@ func (h *WithdrawHandler) MarkPaid(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "提现单 ID"
 // @Param request body dto.WithdrawAuditRequest true "失败原因"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WithdrawInfo "成功"
 // @Router /api/v1/admin/finance/withdrawals/{id}/mark-failed [post]
 func (h *WithdrawHandler) MarkFailed(c *gin.Context) {
 	id, ok := pathID(c, "id")

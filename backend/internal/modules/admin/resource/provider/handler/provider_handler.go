@@ -321,7 +321,7 @@ func (h *ProviderHandler) PlatformResources(c *gin.Context) {
 // @Summary 查询资源池详情
 // @Tags 资源管理-上游提供商
 // @Param id path int true "资源池 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PoolInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/resource/pools/{id} [get]
 func (h *ProviderHandler) GetPool(c *gin.Context) {

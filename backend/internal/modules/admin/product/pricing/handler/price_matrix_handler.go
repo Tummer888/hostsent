@@ -26,7 +26,7 @@ func NewPriceMatrixHandler(matrixService service.PriceMatrixService) *PriceMatri
 // @Param product_id query int true "商品 ID"
 // @Param spec_id query int false "SKU ID，0=商品级"
 // @Param currency query string false "币种，缺省 CNY"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PriceMatrixResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/prices [get]
 func (h *PriceMatrixHandler) Get(c *gin.Context) {
@@ -48,7 +48,7 @@ func (h *PriceMatrixHandler) Get(c *gin.Context) {
 // @Tags 产品管理-定价
 // @Security BearerAuth
 // @Param request body dto.PriceMatrixSaveRequest true "周期价格矩阵"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.PriceMatrixResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/product/prices [put]
 func (h *PriceMatrixHandler) Save(c *gin.Context) {

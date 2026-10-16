@@ -30,7 +30,7 @@ func NewAuthHandler(authService service.AuthService) *AuthHandler {
 // @Accept json
 // @Produce json
 // @Param request body dto.LoginRequest true "登录参数"
-// @Success 200 {object} response.Body{data=dto.LoginResponse}
+// @Success 200 {object} dto.LoginResponse "成功"
 // @Failure 400 {object} response.Body
 // @Failure 500 {object} response.Body
 // @Router /api/v1/uc/auth/login [post]
@@ -58,7 +58,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.VerifyOTPRequest true "验证参数"
-// @Success 200 {object} response.Body{data=dto.LoginResponse}
+// @Success 200 {object} dto.LoginResponse "成功"
 // @Router /api/v1/uc/auth/login/verify-otp [post]
 func (h *AuthHandler) VerifyLoginOTP(c *gin.Context) {
 	var req dto.VerifyOTPRequest
@@ -84,7 +84,7 @@ func (h *AuthHandler) VerifyLoginOTP(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.ForgotPasswordRequest true "找回参数"
-// @Success 200 {object} response.Body{data=dto.ForgotPasswordResponse}
+// @Success 200 {object} dto.ForgotPasswordResponse "成功"
 // @Router /api/v1/uc/auth/forgot-password [post]
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req dto.ForgotPasswordRequest
@@ -181,7 +181,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // @Tags 用户中心-认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} response.Body{data=dto.UserInfo}
+// @Success 200 {object} dto.UserInfo "成功"
 // @Failure 401 {object} response.Body
 // @Failure 500 {object} response.Body
 // @Router /api/v1/uc/auth/userinfo [get]
@@ -230,7 +230,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.UpdateProfileRequest true "资料参数"
-// @Success 200 {object} response.Body{data=dto.UserInfo}
+// @Success 200 {object} dto.UserInfo "成功"
 // @Failure 400 {object} response.Body
 // @Failure 401 {object} response.Body
 // @Failure 500 {object} response.Body

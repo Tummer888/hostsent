@@ -41,7 +41,7 @@ func unauthorized(c *gin.Context) {
 // @Summary 我的续费管理视图
 // @Tags 用户中心-续费管理
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.UserRenewalsViewResponse "成功"
 // @Router /api/v1/uc/instances/renewals [get]
 func (h *LifecycleUserHandler) RenewalsView(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -62,7 +62,7 @@ func (h *LifecycleUserHandler) RenewalsView(c *gin.Context) {
 // @Tags 用户中心-续费管理
 // @Security BearerAuth
 // @Param id path int true "实例 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.RenewalCreatedResponse "成功"
 // @Router /api/v1/uc/instances/{id}/renew [post]
 func (h *LifecycleUserHandler) Renew(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -123,7 +123,7 @@ func (h *LifecycleUserHandler) ToggleAutoRenew(c *gin.Context) {
 // @Param status query string false "状态：pending/success/failed/cancelled"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.RenewalListResponse "成功"
 // @Router /api/v1/uc/renewals [get]
 func (h *LifecycleUserHandler) Records(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -149,7 +149,7 @@ func (h *LifecycleUserHandler) Records(c *gin.Context) {
 // @Tags 用户中心-续费管理
 // @Security BearerAuth
 // @Param id path int true "续费记录 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} lifecycledto.RenewalInfo "成功"
 // @Router /api/v1/uc/renewals/{id} [get]
 func (h *LifecycleUserHandler) Detail(c *gin.Context) {
 	userID, ok := currentUserID(c)

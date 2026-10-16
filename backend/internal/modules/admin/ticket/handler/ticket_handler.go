@@ -84,7 +84,7 @@ func (h *TicketHandler) visibleDepartments(c *gin.Context) []uint64 {
 // @Param end_time query string false "结束时间"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketListResponse "成功"
 // @Router /api/v1/admin/tickets [get]
 func (h *TicketHandler) List(c *gin.Context) {
 	var query dto.TicketListQuery
@@ -107,7 +107,7 @@ func (h *TicketHandler) List(c *gin.Context) {
 // @Security BearerAuth
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.ReviewQueueResponse "成功"
 // @Router /api/v1/admin/tickets/reviews [get]
 func (h *TicketHandler) ListReviews(c *gin.Context) {
 	var query dto.TicketListQuery
@@ -129,7 +129,7 @@ func (h *TicketHandler) ListReviews(c *gin.Context) {
 // @Tags 工单支持-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id} [get]
 func (h *TicketHandler) Get(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -150,7 +150,7 @@ func (h *TicketHandler) Get(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
 // @Param request body dto.TicketReplyRequest true "回复内容"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id}/reply [post]
 func (h *TicketHandler) Reply(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -185,7 +185,7 @@ func (h *TicketHandler) Reply(c *gin.Context) {
 // @Security BearerAuth
 // @Param replyId path int true "回复 ID"
 // @Param request body dto.TicketReviewRequest true "复核参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/replies/{replyId}/review [post]
 func (h *TicketHandler) ReviewReply(c *gin.Context) {
 	replyID, ok := pathID(c, "replyId")
@@ -217,7 +217,7 @@ func (h *TicketHandler) ReviewReply(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
 // @Param request body dto.TicketAssignRequest true "分配参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id}/assign [put]
 func (h *TicketHandler) Assign(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -243,7 +243,7 @@ func (h *TicketHandler) Assign(c *gin.Context) {
 // @Tags 工单支持-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id}/claim [post]
 func (h *TicketHandler) Claim(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -265,7 +265,7 @@ func (h *TicketHandler) Claim(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
 // @Param request body dto.TicketTransferRequest true "转派参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id}/transfer [put]
 func (h *TicketHandler) Transfer(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -292,7 +292,7 @@ func (h *TicketHandler) Transfer(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
 // @Param request body dto.TicketStatusRequest true "目标状态"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id}/status [put]
 func (h *TicketHandler) UpdateStatus(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -318,7 +318,7 @@ func (h *TicketHandler) UpdateStatus(c *gin.Context) {
 // @Tags 工单支持-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/admin/tickets/{id}/close [post]
 func (h *TicketHandler) Close(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -338,7 +338,7 @@ func (h *TicketHandler) Close(c *gin.Context) {
 // @Summary 查询工单统计概览
 // @Tags 工单支持-工单
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketStatsResponse "成功"
 // @Router /api/v1/admin/tickets/stats [get]
 func (h *TicketHandler) Stats(c *gin.Context) {
 	resp, err := h.ticketService.Stats(c.Request.Context())
@@ -354,7 +354,7 @@ func (h *TicketHandler) Stats(c *gin.Context) {
 // @Tags 工单支持-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.TicketAttachmentInfo "成功"
 // @Router /api/v1/admin/tickets/{id}/attachments [post]
 func (h *TicketHandler) UploadAttachment(c *gin.Context) {
 	ticketID, ok := pathID(c, "id")

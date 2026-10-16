@@ -29,7 +29,7 @@ func NewWalletHandler(walletService service.WalletService) *WalletHandler {
 // @Tags 财务管理-钱包
 // @Security BearerAuth
 // @Param user_id path int true "用户 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.WalletInfo "成功"
 // @Router /api/v1/admin/finance/wallets/{user_id} [get]
 func (h *WalletHandler) Balance(c *gin.Context) {
 	userID, ok := pathID(c, "user_id")
@@ -55,7 +55,7 @@ func (h *WalletHandler) Balance(c *gin.Context) {
 // @Param end_time query string false "结束时间"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} transdto.TransactionListResponse "成功"
 // @Router /api/v1/admin/finance/transactions [get]
 func (h *WalletHandler) ListTransactions(c *gin.Context) {
 	var query transdto.TransactionListQuery
@@ -143,7 +143,7 @@ func directionLabel(direction int) string {
 // @Tags 财务管理-流水
 // @Security BearerAuth
 // @Param request body dto.AdjustRequest true "调账参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} transdto.TransactionInfo "成功"
 // @Router /api/v1/admin/finance/transactions/adjust [post]
 func (h *WalletHandler) Adjust(c *gin.Context) {
 	var req dto.AdjustRequest

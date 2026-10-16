@@ -47,7 +47,7 @@ func operatorID(c *gin.Context) (uint64, error) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "用户ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserDeletionCheckResponse "成功"
 //
 //	@Router /api/v1/admin/users/{id}/deletion-check [get]
 func (h *UserDeletionHandler) CheckDeletion(c *gin.Context) {
@@ -124,7 +124,7 @@ func (h *UserDeletionHandler) RestoreUser(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserBatchDeleteRequest true "批量注销参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserBatchResult "成功"
 //
 //	@Router /api/v1/admin/users/batch-delete [post]
 func (h *UserDeletionHandler) BatchDeleteUsers(c *gin.Context) {
@@ -153,7 +153,7 @@ func (h *UserDeletionHandler) BatchDeleteUsers(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserBatchRestoreRequest true "批量恢复参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserBatchResult "成功"
 //
 //	@Router /api/v1/admin/users/batch-restore [post]
 func (h *UserDeletionHandler) BatchRestoreUsers(c *gin.Context) {
@@ -177,7 +177,7 @@ func (h *UserDeletionHandler) BatchRestoreUsers(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserPurgeRequest true "清理参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UserPurgeResponse "成功"
 //
 //	@Router /api/v1/admin/users/purge [post]
 func (h *UserDeletionHandler) PurgeUsers(c *gin.Context) {

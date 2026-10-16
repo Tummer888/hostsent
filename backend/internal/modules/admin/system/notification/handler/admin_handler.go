@@ -117,7 +117,7 @@ func (h *AdminHandler) ListAnnouncements(c *gin.Context) {
 // @Tags 管理端-通知中心
 // @Security BearerAuth
 // @Param request body notifydto.AnnouncementCreateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} notifydto.AnnouncementInfo "成功"
 // @Router /api/v1/admin/announcements [post]
 func (h *AdminHandler) CreateAnnouncement(c *gin.Context) {
 	var req notifydto.AnnouncementCreateRequest
@@ -140,7 +140,7 @@ func (h *AdminHandler) CreateAnnouncement(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body notifydto.AnnouncementUpdateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} notifydto.AnnouncementInfo "成功"
 // @Router /api/v1/admin/announcements/{id} [put]
 func (h *AdminHandler) UpdateAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
@@ -165,7 +165,7 @@ func (h *AdminHandler) UpdateAnnouncement(c *gin.Context) {
 // @Tags 管理端-通知中心
 // @Security BearerAuth
 // @Param id path int true "id"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} notifydto.AnnouncementInfo "成功"
 // @Router /api/v1/admin/announcements/{id}/publish [post]
 func (h *AdminHandler) PublishAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
@@ -185,7 +185,7 @@ func (h *AdminHandler) PublishAnnouncement(c *gin.Context) {
 // @Tags 管理端-通知中心
 // @Security BearerAuth
 // @Param id path int true "id"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} notifydto.AnnouncementInfo "成功"
 // @Router /api/v1/admin/announcements/{id}/offline [post]
 func (h *AdminHandler) OfflineAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
@@ -324,7 +324,7 @@ func (h *AdminHandler) ListTemplates(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body notifydto.TemplateUpdateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} notifydto.TemplateInfo "成功"
 // @Router /api/v1/admin/notification-templates/{id} [put]
 func (h *AdminHandler) UpdateTemplate(c *gin.Context) {
 	id, ok := pathID(c)

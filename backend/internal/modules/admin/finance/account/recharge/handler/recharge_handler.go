@@ -24,7 +24,7 @@ func NewRechargeHandler(rechargeService service.RechargeService) *RechargeHandle
 // @Tags 财务管理-充值
 // @Security BearerAuth
 // @Param request body dto.RechargeCreateRequest true "充值登记参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RechargeInfo "成功"
 // @Router /api/v1/admin/finance/recharges [post]
 func (h *RechargeHandler) Create(c *gin.Context) {
 	var req dto.RechargeCreateRequest
@@ -47,7 +47,7 @@ func (h *RechargeHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "充值单 ID"
 // @Param request body dto.RechargeApproveRequest true "确认参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RechargeInfo "成功"
 // @Router /api/v1/admin/finance/recharges/{id}/approve [post]
 func (h *RechargeHandler) Approve(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -79,7 +79,7 @@ func (h *RechargeHandler) Approve(c *gin.Context) {
 // @Param end_time query string false "结束时间"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RechargeListResponse "成功"
 // @Router /api/v1/admin/finance/recharges [get]
 func (h *RechargeHandler) List(c *gin.Context) {
 	var query dto.RechargeListQuery

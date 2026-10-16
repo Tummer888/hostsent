@@ -28,7 +28,7 @@ func NewCostHandler(costService service.CostService) *CostHandler {
 // @Tags 财务管理-成本
 // @Security BearerAuth
 // @Param month query string false "月份 YYYY-MM（默认当月）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CostOverviewResponse "成功"
 // @Router /api/v1/admin/cost/overview [get]
 func (h *CostHandler) Overview(c *gin.Context) {
 	resp, err := h.costService.Overview(c.Request.Context(), c.Query("month"))
@@ -46,7 +46,7 @@ func (h *CostHandler) Overview(c *gin.Context) {
 // @Param keyword query string false "名称/对象/备注模糊"
 // @Param category query string false "分类"
 // @Param status query string false "状态 active/disabled"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CostItemListResponse "成功"
 // @Router /api/v1/admin/cost/items [get]
 func (h *CostHandler) ListItems(c *gin.Context) {
 	var query dto.CostItemListQuery
@@ -67,7 +67,7 @@ func (h *CostHandler) ListItems(c *gin.Context) {
 // @Tags 财务管理-成本
 // @Security BearerAuth
 // @Param request body dto.CostItemRequest true "成本项"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CostItemInfo "成功"
 // @Router /api/v1/admin/cost/items [post]
 func (h *CostHandler) CreateItem(c *gin.Context) {
 	var req dto.CostItemRequest
@@ -90,7 +90,7 @@ func (h *CostHandler) CreateItem(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "成本项 ID"
 // @Param request body dto.CostItemRequest true "成本项"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.CostItemInfo "成功"
 // @Router /api/v1/admin/cost/items/{id} [put]
 func (h *CostHandler) UpdateItem(c *gin.Context) {
 	id, ok := pathID(c, "id")
@@ -135,7 +135,7 @@ func (h *CostHandler) DeleteItem(c *gin.Context) {
 // @Tags 财务管理-成本
 // @Security BearerAuth
 // @Param month query string false "月份 YYYY-MM（默认当月）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.UpstreamLedgerResponse "成功"
 // @Router /api/v1/admin/cost/balances [get]
 func (h *CostHandler) Ledger(c *gin.Context) {
 	resp, err := h.costService.Ledger(c.Request.Context(), c.Query("month"))
@@ -151,7 +151,7 @@ func (h *CostHandler) Ledger(c *gin.Context) {
 // @Tags 财务管理-成本
 // @Security BearerAuth
 // @Param request body dto.LedgerSyncRequest true "provider_id=0 同步全部支持的渠道；full=true 全量回填"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.LedgerSyncResponse "成功"
 // @Router /api/v1/admin/cost/balances/sync-ledger [post]
 func (h *CostHandler) SyncLedger(c *gin.Context) {
 	var req dto.LedgerSyncRequest
@@ -174,7 +174,7 @@ func (h *CostHandler) SyncLedger(c *gin.Context) {
 // @Param kind query string false "consume=消费（默认）/ topup=充值"
 // @Param provider_id query int false "渠道 ID（0=全部）"
 // @Param month query string false "月份 YYYY-MM（空=不限）"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.LedgerEntryListResponse "成功"
 // @Router /api/v1/admin/cost/balances/entries [get]
 func (h *CostHandler) ListLedgerEntries(c *gin.Context) {
 	var query dto.LedgerEntryQuery
@@ -210,7 +210,7 @@ func (h *CostHandler) BalanceAlerts(c *gin.Context) {
 // @Tags 财务管理-成本
 // @Security BearerAuth
 // @Param request body dto.BalanceFetchRequest true "provider_id 必填"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BalanceSnapshotInfo "成功"
 // @Router /api/v1/admin/cost/balances/fetch [post]
 func (h *CostHandler) FetchBalance(c *gin.Context) {
 	var req dto.BalanceFetchRequest

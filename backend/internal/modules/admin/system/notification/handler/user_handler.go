@@ -88,7 +88,7 @@ func (h *UserHandler) UserList(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "id"
 // @Param request body notifydto.PreferenceUpdateRequest true "请求参数"
-// @Success 200 {string} string "ok"
+// @Success 200 {object} notifydto.NotificationInfo "成功"
 // @Router /api/v1/uc/notifications/{id} [get]
 func (h *UserHandler) UserDetail(c *gin.Context) {
 	userID, ok := userIDFromContext(c)

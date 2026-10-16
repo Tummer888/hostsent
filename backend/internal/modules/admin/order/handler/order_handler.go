@@ -54,7 +54,7 @@ func (h *OrderHandler) List(c *gin.Context) {
 // @Tags 订单管理-订单
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.OrderDetail "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/{id} [get]
 func (h *OrderHandler) Get(c *gin.Context) {
@@ -124,7 +124,7 @@ func (h *OrderHandler) UpdateRemark(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
 // @Param request body dto.RefundCreateRequest true "退款参数"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.RefundInfo "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/{id}/refund [post]
 func (h *OrderHandler) CreateRefund(c *gin.Context) {
@@ -171,7 +171,7 @@ func (h *OrderHandler) Activate(c *gin.Context) {
 // @Summary 查询订单统计概览
 // @Tags 订单管理-订单
 // @Security BearerAuth
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.OrderStatsResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/stats [get]
 func (h *OrderHandler) Stats(c *gin.Context) {
@@ -212,7 +212,7 @@ func (h *OrderHandler) Verify(c *gin.Context) {
 // @Tags 订单管理-订单
 // @Security BearerAuth
 // @Param request body dto.BatchIDsRequest true "订单 ID 集合"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/batch-cancel [post]
 func (h *OrderHandler) BatchCancel(c *gin.Context) {
@@ -234,7 +234,7 @@ func (h *OrderHandler) BatchCancel(c *gin.Context) {
 // @Tags 订单管理-订单
 // @Security BearerAuth
 // @Param request body dto.BatchIDsRequest true "订单 ID 集合"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/batch-activate [post]
 func (h *OrderHandler) BatchActivate(c *gin.Context) {
@@ -255,7 +255,7 @@ func (h *OrderHandler) BatchActivate(c *gin.Context) {
 // @Tags 订单管理-订单
 // @Security BearerAuth
 // @Param request body dto.BatchVerifyRequest true "订单 ID 集合与核验备注"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/batch-verify [post]
 func (h *OrderHandler) BatchVerify(c *gin.Context) {
@@ -278,7 +278,7 @@ func (h *OrderHandler) BatchVerify(c *gin.Context) {
 // @Tags 订单管理-订单
 // @Security BearerAuth
 // @Param request body dto.BatchIDsRequest true "订单 ID 集合"
-// @Success 200 {object} response.Body
+// @Success 200 {object} dto.BatchActionResponse "成功"
 // @Failure 500 {object} response.Body
 // @Router /api/v1/admin/orders/batch-delete [post]
 func (h *OrderHandler) BatchDelete(c *gin.Context) {
