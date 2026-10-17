@@ -659,7 +659,24 @@ func (a *asm) buildWire() {
 	// 用户中心成员（子账号，P4）：仓储同时作为 RequireUserPermission 的权限解析器。
 	a.memberRepo = memberrepo.NewMemberRepository(a.database)
 	a.memberService = memberservice.NewMemberService(a.memberRepo)
+	// 成员改密/禁用要撤销其登录态并失效校验缓存，与管理员踢人走同一条失效通道。
+	a.memberService.SetSessionRevoker(a.userCenterRepo)
+	a.memberService.SetSessionInvalidator(a.sessionGuard)
+	// 禁用主账号时连带撤销其与子账号的有效会话（即时生效，不等校验缓存过期）；
+	// 会话校验侧（sessionguard）另有账号状态兜底，两者互补。
+	a.userService.SetSessionRevoker(a.userCenterRepo)
+	a.userService.SetSessionInvalidator(a.sessionGuard)
 	a.memberHandler = memberhandler.NewMemberHandler(a.memberService)
+	// 子账号菜单裁剪的权限解析器：与 RequireUserPermission 同源（同一个 memberRepo），
+	// 保证「菜单看得见的，接口就一定允许；接口允许的，菜单就能看见」。
+	a.userMenuHandler.SetPermissionResolver(a.memberRepo)
+	a.assertSubAccountWiring()
+	// 管理端子账号管理（P4-10 管理面补全）：复用客户侧成员服务，装配层适配。
+	// 必须在这里接线而不是 buildUserDomain —— a.memberService 在本函数内才构造，
+	// 提前接线会让适配器持有 nil 接口，请求到来时 panic（实测踩过）。
+	// 两边共用同一份业务规则（权限枚举、等级配额、唯一性、改密撤会话），
+	// 只在归属判定上以路径上的主账号 ID 为准。
+	a.userService.SetSubAccountManager(newSubAccountManagerAdapter(a.memberService))
 	// 开放平台（P6）：网关与处理器集合，单一 Bundle 字段挂 App。
 	// 目录服务复用 uc 商品（上架口径）、spec 契约字典与统一算价管线（D3）；
 	// 代客下单复用 UC 下单管线（余额扣 owner、SKU/库存/算价/履约投递同一条路径）；
@@ -667,6 +684,15 @@ func (a *asm) buildWire() {
 	a.openBundle = buildOpenBundle(a.cfg, a.database, a.ucProductService, a.ucOrderService, a.instanceOpsService, a.lifecycleRenewalSvc, a.specContractRepo, a.pricePipeline, a.logger)
 	// 支付中心（doc35）：渠道管理 + 支付单 + 收银台，并注入提现打款与订单渠道退款钩子。
 	a.paymentBundle = buildPaymentBundle(a.cfg, a.database, a.walletService, a.rechargeService, a.billService, a.orderService, a.withdrawService, a.salesBundle.payoutSettler(), a.logger)
+	// 确认收款（场外收款人工入账）：订单域声明两个最小端口，装配层落到支付中心与通知中心。
+	//   - 台账登记：确认收款必须留下支付台账，只改订单状态而账上查不到钱是财务事故；
+	//   - 余额扣款：选「余额支付」时真实从客户余额划走（与后台代客下单同口径）；
+	//   - 到账提醒：客户看不到"支付成功"页面，是否告知由操作人显式勾选渠道。
+	a.orderService.SetOfflinePaymentRecorder(offlinePaymentRecorderAdapter{svc: a.paymentBundle.orderService})
+	a.orderService.SetBalanceDeductor(balanceDeductorAdapter{wallet: a.walletService})
+	a.orderService.SetPaymentNotifier(orderPaymentNotifierAdapter{svc: a.notifySvc})
+	// 下单即绑定支付方式：客户在结算页不选具体渠道时，按「用户默认渠道 > 平台默认渠道」写入订单。
+	a.ucOrderService.SetPayMethodResolver(defaultPayMethodAdapter{pref: a.paymentBundle.preferenceService})
 	// 用户中心订单 ← 支付中心（doc88 §6.2）：待支付订单发起收银台支付；
 	// 取消/超时关单时同步关闭未支付支付单，避免用户付款打到已作废的订单上。
 	a.ucOrderService.SetCashierPorts(a.paymentBundle.orderService, a.paymentBundle.orderService)
@@ -720,4 +746,30 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// assertSubAccountWiring 启动自检：子账号相关的「晚接线」能力是否都接上了。
+//
+// 为什么需要：这类装配依赖是 setter 注入的（能力构造晚于使用方），漏接不会编译报错，
+// 也不会启动失败，只在运行期以两种方式暴露 —— 空 body 的 500（适配器持 nil），
+// 或子账号菜单被静默过度裁剪（解析器缺失）。本仓库已被这两者各咬过一次，
+// 因此把校验前移到启动：宁可起不来，也不要带着错的权限视图对外服务。
+//
+// 只校验「必须接线」的能力；可选能力（如 Logger）不在其中。
+func (a *asm) assertSubAccountWiring() {
+	if a.memberRepo == nil {
+		a.logger.Fatal("sub-account wiring: memberRepo 未构造，子账号权限校验会一律拒绝")
+	}
+	if a.memberService == nil {
+		a.logger.Fatal("sub-account wiring: memberService 未构造，子账号管理不可用")
+	}
+	if a.userMenuHandler != nil && !a.userMenuHandler.HasPermissionResolver() {
+		a.logger.Fatal("sub-account wiring: 菜单权限解析器未接线，子账号菜单会被过度裁剪")
+	}
+	if !a.userService.HasSessionRevoker() {
+		a.logger.Fatal("sub-account wiring: 用户会话撤销能力未接线，禁用主账号不会即时踢掉其子账号")
+	}
+	if !a.memberService.HasSessionRevoker() {
+		a.logger.Fatal("sub-account wiring: 成员会话撤销能力未接线，禁用/改密不会即时失效登录态")
+	}
 }

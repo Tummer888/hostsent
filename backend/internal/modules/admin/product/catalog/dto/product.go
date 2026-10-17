@@ -54,7 +54,7 @@ type ProductCreateRequest struct {
 // ProductSpecTemplateSelection 建品时选定一个规格模板（含就地调整后的参数）。
 type ProductSpecTemplateSelection struct {
 	SpecTemplateID uint64 `json:"spec_template_id" binding:"required"`
-	// SpecCode / Name 覆盖从模板派生的 SKU 编码与名称（留空自动派生）。
+	// SpecCode / Name 覆盖从模板派生的规格编码（SKU）与名称（留空自动派生）。
 	SpecCode string `json:"spec_code"`
 	Name     string `json:"name"`
 	// Price / CostPrice 覆盖售价与成本价；Price 为 0 时回落模板参考售价，再回落商品售价。
@@ -70,12 +70,58 @@ type ProductSpecTemplateSelection struct {
 	// OptionOverrides 就地覆盖的客户选配项（T4.5）：参数名 → 可选值及加价。
 	// 留空时由模板 option_selections + 平台配置项目录自动生成。
 	OptionOverrides []ProductOptionOverride `json:"option_overrides"`
-	// AxisPrices 按轴取值组合逐规格定价（T4.7）：建品时给"2核/4核"各定一个价。
+	// AxisPrices 按轴取值组合**单独调价**的规格（T4.7/T4.8）。
 	//
 	// 为什么按取值组合而不是按 spec_code 传：spec_code 是后端按组合确定性派生的，
 	// 让前端复刻那套规则会多一处必须保持同步的实现（改一处忘一处就静默错价）。
 	// 传取值组合则只需前端知道"我勾了哪些取值"，由后端匹配到对应规格。
+	//
+	// 压缩定价（T4.8）下这里通常为空：价格由 AxisCharges 按取值加价展开得到。
+	// 只有运营主动"逐规格单独定价"的规格才出现在这里，且**优先于**展开结果。
 	AxisPrices []ProductAxisSpecPrice `json:"axis_prices"`
+	// AxisCharges 压缩定价（T4.8）：一个套餐价 + 各取值的加价，后端按正交组合展开。
+	//
+	// 为什么加这层：逐个 SKU 填价在 CPU×内存=16 个组合时无法维护 —— 运营想表达的是
+	// "4核比2核贵 10 元、8核贵 20 元"，而不是"第 7 行那个组合卖 187 元"。
+	// 套餐价涵盖各轴的**基线取值**，其余取值填加价后叠加，与运营的直觉一致。
+	AxisCharges *ProductAxisChargePlan `json:"axis_charges"`
+	// SellableCycles 本档位要开卖的全部计费周期。
+	//
+	// 为什么要显式给：展开出来的每个规格都会写自己的矩阵行，而"某规格有任意一行
+	// 即为其全部周期的权威"—— 所以每个规格必须**写满**这些周期。
+	// 没给该周期价时后端按周期月数从月付推导（见 expandCyclesForPlan），
+	// 而不是静默漏写（漏写会让客户选那个周期时下单被硬拒）。
+	SellableCycles []string `json:"sellable_cycles"`
+}
+
+// ProductAxisChargePlan 压缩定价方案（T4.8）。
+//
+// 语义：某个规格的价 = 套餐基准价 + Σ(该组合里每个取值相对基线的加价)。
+// 每个轴的**基线取值**不加价（它已含在套餐价里），其余取值按加价叠加。
+//
+// 例：套餐 100；cpu 基线 2核，4核 +10、8核 +20；内存基线 2G，4G +10、8G +20。
+//
+//	2核2G = 100   4核2G = 110   8核2G = 120
+//	2核4G = 110   4核4G = 120   8核4G = 130
+//	2核8G = 120   4核8G = 130   8核8G = 140
+type ProductAxisChargePlan struct {
+	// BaseValues 每个轴的基线取值（该取值不加价）。未声明的轴取模板默认值，
+	// 两者都没有时取该轴第一个取值 —— 保证"总有且只有一个基线"，
+	// 否则套餐价没有归属，展开出来的价会少算或重算一份基线。
+	BaseValues map[string]string `json:"base_values"`
+	// BasePrice 套餐基准价（月付），对应"所有轴都取基线值"的那个规格。
+	BasePrice float64 `json:"base_price"`
+	// BaseCost 套餐基准成本（月付），可选。
+	BaseCost float64 `json:"base_cost"`
+	// BaseCycles 套餐价的逐周期价（周期 → 金额），可选。
+	//
+	// 展开时用它算**该周期的基准倍率**：年付基准 = 月付×10 时，加价也 ×10，
+	// 这样"省 N 个月"的优惠对套餐与加价一致生效。留空则按周期月数兜底。
+	BaseCycles map[string]float64 `json:"base_cycles"`
+	// Values 逐轴取值加价（月付口径）：参数名 → 取值 → 加价。基线取值恒不加价。
+	Values map[string]map[string]float64 `json:"values"`
+	// CostValues 逐轴取值成本加价（月付口径），可选；口径同 Values。
+	CostValues map[string]map[string]float64 `json:"cost_values"`
 }
 
 // ProductAxisSpecPrice 一个轴取值组合的定价。
@@ -84,9 +130,19 @@ type ProductSpecTemplateSelection struct {
 // 值是该轴取值的原始值（与 option_selections.values 同口径）。
 // 未命中任何组合时该项被忽略（不报错）—— 运营可能只给部分规格定价。
 type ProductAxisSpecPrice struct {
-	Values    map[string]string `json:"values"`
-	Price     float64           `json:"price"`
-	CostPrice float64           `json:"cost_price"`
+	Values map[string]string `json:"values"`
+	// Price 该规格的基准价（月付价），写入 product_specs.price。
+	Price     float64 `json:"price"`
+	CostPrice float64 `json:"cost_price"`
+	// Cycles 该规格的逐周期价（周期 → 金额）。为空表示只定基准价，
+	// 由商品级矩阵兜底；填写后为该规格写独立的矩阵行（优先于商品级）。
+	//
+	// 为什么逐周期价要落在规格上：长周期常有不同折扣（年付九折），
+	// 只给一个基准价再全局套倍率会让"2核年付"和"8核年付"的折扣被迫一致。
+	//
+	// 注意必须**写全该规格所有可售周期**：某个规格只要有任意一条矩阵行，
+	// 它就是该规格所有周期的权威（不回落到商品级价），缺哪个周期客户就买不了哪个周期。
+	Cycles map[string]float64 `json:"cycles"`
 }
 
 // ProductOptionOverride 建品时就地调整某个客户选配项。

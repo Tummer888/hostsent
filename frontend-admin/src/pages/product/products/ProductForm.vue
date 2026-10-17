@@ -99,7 +99,7 @@
           <t-form-item label="产品名称" name="name" :rules="[{ required: true, message: '产品名称不能为空' }]">
             <t-input v-model="form.name" placeholder="请输入产品名称" clearable />
           </t-form-item>
-          <t-form-item label="SKU 编码" name="code">
+          <t-form-item label="商品编码（SPU）" name="code">
             <!-- 编码是系统与上游的标识，创建后不可更改（改动会让历史订单与绑定对不上）。 -->
             <t-input v-model="form.code" disabled />
             <span class="form-hint">系统与上游用的标识，创建后不可更改。</span>
@@ -342,7 +342,9 @@
                             <template v-if="row.options.length"> · {{ row.options.length }} 个可选参数</template>
                           </span>
                         </span>
-                        <span class="tpl-chip__price">{{ row.price > 0 ? `¥${row.price}` : '未定价' }}</span>
+                        <span class="tpl-chip__price">{{
+                          basePriceOf(row).price > 0 ? `¥${basePriceOf(row).price}` : '未定价'
+                        }}</span>
                       </label>
                     </div>
                   </div>
@@ -391,9 +393,9 @@
             <div class="form-step__text">
               <div class="form-step__title">规格明细</div>
               <div class="form-step__desc">
-                逐档微调基线值与「客户可选配置项」。不改则按档位模板原值生成 SKU。
-                可选配置项默认全部开放给客户（模板里配了几个取值就开放几个），可逐值设加价；
-                用「基线值」标记客户默认拿到的那个，也可整项关闭。
+                逐档核对基线取值与价格。CPU/内存若被标为规格维度，就只在这里的「规格加价」出现
+                （每个取值一台不同机器，基线取值不加价）；其余参数按客户可选配置项开放。
+                价格只需填一份：<b>月付即基准价</b>，长周期一键推导。
               </div>
             </div>
             <span class="form-step__meta">{{ selectedRows.length }} 个档位</span>
@@ -433,17 +435,27 @@
               message="NAT 机型不分配独立 IP，客户通过节点转发地址（IP:端口）访问；如需客户自己配置端口映射，请确认平台侧已开启 NAT 转发。"
             />
 
+            <!--
+              ══════════ 档位基线（非规格维度的取值）══════════
+
+              CPU / 内存若被模板标为「参与 SKU 正交」，就不在这里出现 ——
+              它们由下面的「规格维度」按取值展开成多个 SKU，此处再给一个输入框
+              会变成两个真源（填了 4 核到底算基线还是算一个组合？）。
+              这里只保留**不参与正交**的基线取值：系统盘、带宽这些客户可调的量，
+              以及档位模板未声明维度的机型参数。
+            -->
             <div class="tpl-row__fields">
-              <label class="tpl-field">CPU（核）<t-input-number v-model="row.cpu" :min="1" theme="column" /></label>
-              <label class="tpl-field"
+              <label v-if="!isAxisKey(row, 'cpu')" class="tpl-field"
+                >CPU（核）<t-input-number v-model="row.cpu" :min="1" theme="column"
+              /></label>
+              <label v-if="!isAxisKey(row, 'memory')" class="tpl-field"
                 >内存（GB）<t-input-number v-model="row.memoryGb" :min="1" theme="column"
               /></label>
-              <label class="tpl-field">系统盘（GB）<t-input-number v-model="row.disk" :min="1" theme="column" /></label>
-              <label class="tpl-field"
-                >带宽（Mbps）<t-input-number v-model="row.bandwidth" :min="0" theme="column"
+              <label v-if="!isAxisKey(row, 'system_disk_size')" class="tpl-field"
+                >系统盘（GB）<t-input-number v-model="row.disk" :min="1" theme="column"
               /></label>
-              <label class="tpl-field"
-                >销售价（元）<t-input-number v-model="row.price" :min="0" :precision="2" theme="column"
+              <label v-if="!isAxisKey(row, 'bw')" class="tpl-field"
+                >带宽（Mbps）<t-input-number v-model="row.bandwidth" :min="0" theme="column"
               /></label>
             </div>
 
@@ -486,6 +498,195 @@
                   默认开通用「{{ imageLabelOf(row.osList[0]) }}」，客户可选其余 {{ row.osList.length - 1 }} 个
                 </span>
               </label>
+            </div>
+
+            <!--
+              ══════════ 价格（档位级，唯一一处定价）══════════
+
+              口径（用户要求）：**月付（最基础的周期）就是基准价**，季付/半年付/年付
+              由「一键生成周期价」按「月数 − 优惠月数」推出来，可逐项微调。
+              不再另设一个"套餐基准价"—— 那与这里填的月付价是同一件事，
+              两处并存只会让人不知道该改哪个（实测反馈的重复项）。
+
+              这里一个档位一条价格，下面是各规格的加价（规格 = 这台机器的配置组合）。
+            -->
+            <div class="spec-price">
+              <div class="spec-price__head">
+                <span>
+                  价格
+                  <em class="spec-price__count">{{ rowAxisSpecs(row).length }} 个规格</em>
+                </span>
+                <span v-if="sellableLongCycles.length" class="spec-price__derive">
+                  <t-button size="small" theme="primary" variant="outline" @click="generateRowCyclePrices(row)">
+                    一键生成周期价
+                  </t-button>
+                  <span v-for="c in sellableLongCycles" :key="c.value" class="spec-price__derive-off">
+                    {{ c.label }}省
+                    <t-input-number
+                      :model-value="planOffMonths(c.value)"
+                      :min="0"
+                      :max="(cycleMeta[c.value]?.months ?? 1) - 1"
+                      :style="{ width: '64px' }"
+                      size="small"
+                      theme="column"
+                      @change="(v: number | string | undefined) => setPlanOffMonths(c.value, Number(v ?? 0))"
+                    />
+                    月
+                  </span>
+                </span>
+              </div>
+
+              <!--
+                逐周期价格：月付是基准（长周期由它推导），其余周期可直接改。
+                只列「可售周期」里勾选的那些 —— 没勾的周期不卖，填了也不落库。
+              -->
+              <div class="row-price">
+                <div class="row-price__grid">
+                  <label v-for="c in sellableCycleColumns" :key="c.value" class="row-price__field">
+                    <span class="row-price__label">
+                      {{ c.label }}（元）
+                      <t-tag v-if="c.value === 'monthly'" size="small" variant="light" shape="round">
+                        基准价
+                      </t-tag>
+                    </span>
+                    <t-input-number
+                      :model-value="rowCyclePriceOf(row, c.value)"
+                      :min="0"
+                      :precision="2"
+                      theme="column"
+                      :placeholder="c.value === 'monthly' ? '基准价，长周期按它推导' : '留空则不开放该周期'"
+                      @change="(v: number | string | undefined) => onRowCycleChange(row, c.value, Number(v ?? 0))"
+                    />
+                  </label>
+                  <label class="row-price__field">
+                    <span class="row-price__label">成本价（元/月，选填）</span>
+                    <t-input-number
+                      :model-value="basePriceOf(row).cost"
+                      :min="0"
+                      :precision="2"
+                      theme="column"
+                      placeholder="这档位的成本"
+                      @change="(v: number | string | undefined) => setBasePrice(row, basePriceOf(row).price, Number(v ?? 0))"
+                    />
+                  </label>
+                </div>
+                <span class="row-price__hint">
+                  客户下单时看到的就是这些周期；留空的长周期不开放。月付价即基准价，
+                  下面的规格加价都叠加在它之上。
+                </span>
+              </div>
+
+              <!--
+                规格加价：CPU/内存这类"每个取值是一台不同机器"的参数。
+                基线取值不加价（它对应的就是上面填的月付价），其余取值填加价后叠加。
+              -->
+              <div v-if="axisRowsOf(row).length" class="charge-panel">
+                <div class="charge-panel__title">
+                  规格加价
+                  <span class="charge-panel__hint">
+                    基线取值不加价（它就是上面的价）；其余取值填加价后叠加
+                  </span>
+                  <span v-if="compressedPriceRange(row).max > 0" class="charge-base__range">
+                    展开后：<b>¥{{ compressedPriceRange(row).min }}</b>
+                    ~
+                    <b>¥{{ compressedPriceRange(row).max }}</b>
+                    （月付）
+                  </span>
+                </div>
+                <div v-for="axis in axisRowsOf(row)" :key="axis.key" class="charge-axis">
+                  <div class="charge-axis__name">
+                    {{ axis.label }}
+                    <code class="charge-axis__key">{{ axis.key }}</code>
+                  </div>
+                  <div class="charge-axis__values">
+                    <label
+                      v-for="item in axis.values"
+                      :key="item.value"
+                      class="charge-value"
+                      :class="{ 'charge-value--base': item.value === axis.baseline }"
+                    >
+                      <span class="charge-value__label">
+                        {{ item.label }}
+                        <t-tag v-if="item.value === axis.baseline" size="small" variant="light" shape="round">
+                          基线
+                        </t-tag>
+                      </span>
+                      <template v-if="item.value === axis.baseline">
+                        <span class="charge-value__base-hint">不加价</span>
+                      </template>
+                      <template v-else>
+                        <span class="charge-value__inputs">
+                          <t-input-number
+                            :model-value="axisChargeOfUi(row, axis.key, item.value)"
+                            :min="0"
+                            :precision="2"
+                            theme="column"
+                            placeholder="加价"
+                            @change="(v: number | string | undefined) => setAxisCharge(row, axis.key, item.value, Number(v ?? 0))"
+                          />
+                          <t-input-number
+                            :model-value="axisCostChargeOfUi(row, axis.key, item.value)"
+                            :min="0"
+                            :precision="2"
+                            theme="column"
+                            placeholder="成本加价"
+                            @change="(v: number | string | undefined) => setAxisCostCharge(row, axis.key, item.value, Number(v ?? 0))"
+                          />
+                        </span>
+                      </template>
+                      <t-link
+                        v-if="item.value !== axis.baseline"
+                        theme="default"
+                        hover="color"
+                        size="small"
+                        @click="setAxisBaseline(row, axis.key, item.value)"
+                      >
+                        设为基线
+                      </t-link>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="spec-price__derive">
+                <t-button size="small" variant="outline" @click="toggleSpecPriceDetail(row)">
+                  {{ expandedPriceRows[row.tpl.id] ? '收起逐规格单独定价' : '展开逐规格单独定价' }}
+                </t-button>
+                <span class="spec-price__derive-hint">
+                  需要给某个规格单独定价（不与加价联动）时才展开；展开后可分别覆盖。
+                </span>
+                <span v-if="hasOverrides(row) && !expandedPriceRows[row.tpl.id]" class="spec-price__derive-warn">
+                  已有单独定价的规格，未展开
+                </span>
+              </div>
+
+              <!-- 逐规格定价（按需展开）：运营主动单独定价的规格，优先于加价展开 -->
+              <div v-if="expandedPriceRows[row.tpl.id] && rowAxisSpecs(row).length" class="spec-price__detail">
+                <div class="spec-price__detail-head">
+                  <span>逐规格定价（留空表示按上面的加价展开）</span>
+                </div>
+                <div class="spec-price__table">
+                  <div class="spec-price__row spec-price__row--head">
+                    <span class="spec-price__cell spec-price__cell--name">规格</span>
+                    <span v-for="c in sellableCycleColumns" :key="c.value" class="spec-price__cell">
+                      {{ c.label }}（元）
+                    </span>
+                  </div>
+                  <div v-for="spec in rowAxisSpecs(row)" :key="spec.key" class="spec-price__row">
+                    <span class="spec-price__cell spec-price__cell--name" :title="spec.label">{{ spec.label }}</span>
+                    <span v-for="c in sellableCycleColumns" :key="c.value" class="spec-price__cell">
+                      <t-input-number
+                        :model-value="specPriceOf(row, spec.key, c.value)"
+                        :min="0"
+                        :precision="2"
+                        theme="column"
+                        placeholder="留空"
+                        @change="(v: number | string | undefined) => setSpecPrice(row, spec.key, c.value, Number(v ?? 0))"
+                      />
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!--
@@ -644,7 +845,8 @@
               <div class="form-step__title">基础信息</div>
               <div class="form-step__desc">
                 <template v-if="mode === 'create'">
-                  选好档位后名称与售价会自动带入，可改。SKU 编码、分类、平台渠道、封面与描述需自己填。
+                  选好档位后名称会自动带入，可改。商品编码、分类、平台渠道、封面与描述需自己填；
+                  价格在下一步「规格明细」里逐规格填。
                 </template>
                 <template v-else>商品本体信息；规格在详情页维护。</template>
               </div>
@@ -655,9 +857,9 @@
               <t-input v-model="form.name" placeholder="请输入产品名称" clearable />
             </t-form-item>
             <t-form-item
-              label="SKU 编码"
+              label="商品编码（SPU）"
               name="code"
-              :rules="[{ required: mode === 'create', message: 'SKU 编码不能为空' }]"
+              :rules="[{ required: mode === 'create', message: '商品编码不能为空' }]"
             >
               <t-input
                 v-model="form.code"
@@ -714,8 +916,8 @@
                   }}</t-checkbox>
                 </t-checkbox-group>
                 <span class="form-hint">
-                  勾选的周期会写入价格矩阵并开放给客户下单，至少选一个。按小时/按天适合做试用型商品；
-                  月付及以上的周期用下方「周期价格」按优惠月数一键算出。
+                  勾选的周期会写入价格矩阵并开放给客户下单，至少选一个。按小时/按天适合做试用型商品。
+                  价格在「规格明细」里按档位填：<b>月付即基准价</b>，长周期点「一键生成周期价」按优惠月数推导。
                 </span>
               </div>
             </t-form-item>
@@ -727,11 +929,22 @@
             <t-form-item label="库存" name="stock">
               <t-input-number v-model="form.stock" :min="-1" theme="column" placeholder="-1 表示不限" />
             </t-form-item>
-            <t-form-item label="销售价（元）" name="price">
+            <!--
+              创建态不再填「销售价」：价格在「规格明细」里**逐规格**填（2核多少钱、4核多少钱）。
+              这里多一个商品级价格只会产生第三个价格来源，且它与规格价谁生效要看矩阵有没有行，
+              运营很难判断 —— 实际故障就是"改了这个价，客户下单还是老价格"。
+              编辑态保留：存量商品可能只有商品级价（未拆规格），需要一个改价入口。
+            -->
+            <t-form-item v-if="mode !== 'create'" label="销售价（元）" name="price">
               <t-input-number v-model="form.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
               <span class="form-hint">{{ priceHint }}</span>
             </t-form-item>
-            <t-form-item label="成本价（元）" name="cost_price">
+            <!--
+              成本价只在"稍后手工建规格"时出现：按档位配置时每个档位在「规格明细」里
+              各有自己的成本（不同规格成本本来就不同，商品级一个数代表不了）。
+              两处并存会让运营不知道该改哪个 —— 实测反馈的重复项之一。
+            -->
+            <t-form-item v-if="specMode !== 'template'" label="成本价（元）" name="cost_price">
               <t-input-number
                 v-model="form.cost_price"
                 :min="0"
@@ -742,18 +955,19 @@
             </t-form-item>
 
             <!--
-            周期价格：只对「可售周期」里勾选的周期生成，逐周期可勾选是否参与一键计算。
+            周期价格（仅"稍后手工建规格"时出现）。
 
-            用户要求：有的周期要一起算（月/季/半年/年按优惠月数推导），有的要单独设
-            （按小时常用于试用商品，没有"月数×价"的口径）。原来四个优惠月数输入框
-            对所有周期一律生效，按小时也只能跟着月付价走，算不出试用价。
-            现在：每个勾选的周期一行，勾上「一键计算」的参与推导，没勾的自己填价，
-            「一键生成」不会覆盖手动定价的行。
+            按档位配置的商品在「规格明细」里逐规格逐周期定价，那一份是唯一真源；
+            这里同时出现两个定价区只会让人不知道该填哪个，所以按档位配置时整块隐藏。
 
             口径：周期价 = 月付价 × 月数 − 优惠月数 × 月付价。优惠月数上限为该周期
             月数 − 1，至少留一个月不优惠，避免生成 0 元周期价（0 元价上架后客户真能 0 元买）。
           -->
-            <t-form-item v-if="mode === 'create'" label="周期价格" class="form-grid__full">
+            <t-form-item
+              v-if="mode === 'create' && specMode !== 'template'"
+              label="周期价格"
+              class="form-grid__full"
+            >
               <div class="price-gen">
                 <p v-if="!cyclePlans.length" class="price-gen__empty">请先在上方勾选可售周期，这里再逐周期定价。</p>
                 <template v-else>
@@ -800,8 +1014,8 @@
                     </div>
                   </div>
                   <p class="price-gen__hint">
-                    周期价只作用于该商品的默认规格；要按 SKU 分别定价，请在商品详情页的「周期价格」里维护。
-                    未勾选「一键计算」的周期由你手工定价，生成时不会被覆盖。
+                    这些周期价落在**商品级**（所有规格共用）。按档位配置时请改在「规格明细」里逐规格填，
+                    两者同时存在时规格级优先。
                   </p>
                 </template>
               </div>
@@ -960,6 +1174,8 @@ import type {
   SaleProductUpdateRequest,
   SaleProductInfo,
   SaleProductOptionOverride,
+  SaleProductAxisChargePlan,
+  SaleProductAxisSpecPrice,
   SaleProductSpecTemplateSelection,
   SpecTemplateInfo,
 } from '@/types/interface'
@@ -1370,6 +1586,476 @@ const totalSkuCount = computed(() =>
 )
 
 /**
+ * rowAxisSpecs 列出某档位将生成的全部规格（含"无维度时的那 1 个"）。
+ *
+ * 无维度时也要列出 1 条：那个规格同样需要定价，不能因为"没有维度"就不给输入框
+ * —— 建品阶段的价格入口只有这一处。
+ * key 用取值组合拼成稳定串（与后端 matchAxisPrice 的 entry 对应）。
+ */
+function rowAxisSpecs(row: TemplateRow): { key: string; label: string; values: Record<string, string> }[] {
+  const sel = (row.tpl.option_selections || {}) as Record<
+    string,
+    { values?: string[]; range?: number[]; sku_axis?: boolean }
+  >
+  // 只取"参与正交"的离散轴（与 axisCombinationCount 同口径）。
+  const axes: { key: string; values: string[]; label: string }[] = []
+  for (const [key, cfg] of Object.entries(sel)) {
+    if (!cfg?.sku_axis || Array.isArray(cfg.range) || !cfg.values?.length) continue
+    axes.push({ key, values: cfg.values, label: platformFieldLabel(key) })
+  }
+  axes.sort((a, b) => a.key.localeCompare(b.key))
+  if (!axes.length) {
+    // 无维度：只有一条规格，标签用档位名（它就是"这个档位"本身）。
+    return [{ key: '__base__', label: row.tpl.name || '默认规格', values: {} }]
+  }
+  let combos: Record<string, string>[] = [{}]
+  for (const axis of axes) {
+    const next: Record<string, string>[] = []
+    for (const base of combos) {
+      for (const v of axis.values) {
+        next.push({ ...base, [axis.key]: v })
+      }
+    }
+    combos = next
+  }
+  return combos.map((values) => ({
+    key: specKeyOf(values),
+    label: axes
+      .map((a) => catalogValueLabel(a.key, values[a.key]) || values[a.key])
+      .join(' / '),
+    values,
+  }))
+}
+
+/** specKeyOf 取值组合 → 稳定键（与后端 matchAxisPrice 的 Values 一一对应）。 */
+function specKeyOf(values: Record<string, string>): string {
+  const keys = Object.keys(values).sort()
+  if (!keys.length) return '__base__'
+  return keys.map((k) => `${k}=${values[k]}`).join('&')
+}
+
+/** 逐规格价格本地状态：档位模板 id → 规格键 → 周期 → 金额。 */
+const specPriceState = reactive<Record<number, Record<string, Record<string, number>>>>({})
+
+/**
+ * 档位级周期价：档位模板 id → 周期 → 金额。
+ *
+ * 这是该档位的**基准价格**（月付即基准价），长周期由「一键生成周期价」按
+ * 「月数 − 优惠月数」算出后存在这里，可逐格微调。
+ *
+ * 为什么不复用 specPriceState：那是"逐规格单独定价"的覆盖表（键是取值组合），
+ * 而这里是"这个档位整体卖多少钱"（键只有周期）。两件事混用一张表会让
+ * "我改了月付价，长周期怎么没跟着变"这类问题无从解释。
+ */
+const rowCycleState = reactive<Record<number, Record<string, number>>>({})
+
+/**
+ * onRowCycleChange 改某档位某周期的价。
+ *
+ * 月付是基准价（写进 basePrice，规格加价都叠在它之上）；其余周期是"这个档位
+ * 卖多少钱"的直接定价，存进 rowCycleState。两者分开存，是因为后端契约里
+ * 月付价要走 base_price（加价的基准），长周期走 base_cycles（加价的倍率来源）。
+ */
+function onRowCycleChange(row: TemplateRow, cycle: string, amount: number) {
+  if (cycle === 'monthly') {
+    setBasePrice(row, amount)
+    return
+  }
+  setRowCyclePrice(row, cycle, amount)
+}
+
+/** 某档位某周期的价（未生成过时按 0 读，界面显示 —）。 */
+function rowCyclePriceOf(row: TemplateRow, cycle: string): number {
+  if (cycle === 'monthly') return basePriceOf(row).price
+  return rowCycleState[row.tpl.id]?.[cycle] ?? 0
+}
+
+function setRowCyclePrice(row: TemplateRow, cycle: string, amount: number) {
+  if (!rowCycleState[row.tpl.id]) rowCycleState[row.tpl.id] = {}
+  rowCycleState[row.tpl.id][cycle] = Number.isFinite(amount) && amount > 0 ? amount : 0
+}
+
+/**
+ * generateRowCyclePrices 按「月付价 × (月数 − 优惠月数)」生成该档位的长周期价。
+ *
+ * 用户要求的一口径：**以月付（最基础的周期）为基准价**，长周期由它推导，
+ * 不再另设一个"套餐价"。优惠月数上限为该周期月数 − 1 —— 至少留一个月不优惠，
+ * 避免推出 0 元周期价（上架后客户真能 0 元买，那是事故不是折扣）。
+ */
+function generateRowCyclePrices(row: TemplateRow) {
+  const monthly = basePriceOf(row).price
+  if (!(monthly > 0)) {
+    MessagePlugin.warning('请先填月付价（它是基准价，长周期由它推导）')
+    return
+  }
+  let touched = 0
+  for (const c of sellableLongCycles.value) {
+    const months = cycleMeta[c.value]?.months ?? 0
+    if (months <= 1) continue
+    const off = Math.max(0, Math.min(planOffMonths(c.value), months - 1))
+    setRowCyclePrice(row, c.value, round2(monthly * (months - off)))
+    touched++
+  }
+  if (!touched) {
+    MessagePlugin.info('当前可售周期里没有可按月数推导的周期；按小时/按天请直接填价')
+    return
+  }
+  MessagePlugin.success(`已按基准月付价生成 ${touched} 个周期价，可逐项微调`)
+}
+
+/**
+ * specCostOf 某规格的成本 = 档位成本 + 该组合各取值的成本加价。
+ *
+ * 刻意不给成本单开一列输入：那样会有三处成本入口（档位、逐规格表、基础信息），
+ * 运营不知道该改哪个。成本与售价同源派生 —— 售价是"档位价 + 取值加价"，
+ * 成本就是"档位成本 + 取值成本加价"，两栏并排出现在加价行里。
+ */
+function specCostOf(row: TemplateRow, specKey: string): number {
+  const spec = rowAxisSpecs(row).find((item) => item.key === specKey)
+  if (!spec) return 0
+  let total = basePriceOf(row).cost
+  for (const axis of axisRowsOf(row)) {
+    const value = spec.values[axis.key] ?? axis.baseline
+    if (value === axis.baseline) continue
+    total += axis.costCharges[value] ?? 0
+  }
+  return round2(total)
+}
+
+// ===== 压缩定价（默认视图）=====
+//
+// 逐个 SKU 填价在 CPU×内存=16 个组合时无法维护，且与运营的心智模型不符：
+// 他们想表达的是"4核比2核贵 10 元、8核贵 20 元"，不是"第 7 行那个组合卖 187 元"。
+// 压缩模型下运营只填：一个套餐价 + 每个取值相对基线的加价，
+// 各 SKU 的价由后端按正交组合叠加算出（见 dto.ProductAxisChargePlan）。
+
+/** 一个轴（参与正交的配置项）在界面上需要的全部信息。 */
+type AxisRow = {
+  key: string
+  label: string
+  /** 该轴的可选取值（含展示名）。 */
+  values: { value: string; label: string }[]
+  /** 基线取值（不加价，已含在套餐价里）。 */
+  baseline: string
+  /** 取值 → 加价（月付口径）；基线恒为 0 且不参与提交。 */
+  charges: Record<string, number>
+  /** 取值 → 成本加价（月付口径），可选。 */
+  costCharges: Record<string, number>
+}
+
+/**
+ * axisRowsState 逐档位的轴加价状态：档位模板 id → 轴参数名 → AxisRow。
+ *
+ * 用 reactive 对象而不是 computed：界面上要直接改 charges，
+ * computed 每次重算会把改动丢掉（这类"填了没保存住"的问题很难自查）。
+ */
+const axisRowsState = reactive<Record<number, Record<string, AxisRow>>>({})
+
+/** 套餐基准价（月付）与成本：档位模板 id → 金额。 */
+const basePriceState = reactive<Record<number, { price: number; cost: number }>>({})
+
+/** 展开逐规格单独定价的档位模板 id 集合（默认全部压缩，按需展开）。 */
+const expandedPriceRows = reactive<Record<number, boolean>>({})
+
+/**
+ * isAxisKey 该参数是否为这个档位的「规格维度」轴。
+ *
+ * 用于避免同一参数的输入框出现两次：cpu/memory 一旦参与正交，
+ * 它们就是"按取值展开成多个 SKU"的轴，不该再在基线区给一个输入框。
+ */
+function isAxisKey(row: TemplateRow, key: string): boolean {
+  const sel = (row.tpl.option_selections || {}) as Record<
+    string,
+    { values?: string[]; range?: number[]; sku_axis?: boolean }
+  >
+  const cfg = sel[key]
+  if (!cfg?.sku_axis || Array.isArray(cfg.range) || !cfg.values?.length) return false
+  // 只有一个取值时不成其为维度（与 buildAxisPlan 同口径）：等于固定配置，
+  // 那个取值就是基线，仍应在基线区可改。
+  return cfg.values.length > 1
+}
+
+/** 该档位的轴列表（参与正交的离散参数，按参数名排序保证稳定）。 */
+function axisRowsOf(row: TemplateRow): AxisRow[] {
+  const state = axisRowsState[row.tpl.id]
+  if (!state) return []
+  return Object.values(state).sort((a, b) => a.key.localeCompare(b.key))
+}
+
+/** 该档位的套餐价与成本（未初始化时按 0 读，避免模板里出现 undefined）。 */
+function basePriceOf(row: TemplateRow): { price: number; cost: number } {
+  return basePriceState[row.tpl.id] ?? { price: 0, cost: 0 }
+}
+
+function setBasePrice(row: TemplateRow, price: number, cost?: number) {
+  const prev = basePriceState[row.tpl.id] ?? { price: 0, cost: 0 }
+  basePriceState[row.tpl.id] = {
+    price: Number.isFinite(price) && price > 0 ? price : 0,
+    cost: cost === undefined ? prev.cost : Number.isFinite(cost) && cost > 0 ? cost : 0,
+  }
+}
+
+function setAxisCharge(row: TemplateRow, axisKey: string, value: string, amount: number) {
+  const axis = axisRowsState[row.tpl.id]?.[axisKey]
+  if (!axis) return
+  axis.charges[value] = Number.isFinite(amount) && amount > 0 ? amount : 0
+}
+
+function setAxisCostCharge(row: TemplateRow, axisKey: string, value: string, amount: number) {
+  const axis = axisRowsState[row.tpl.id]?.[axisKey]
+  if (!axis) return
+  axis.costCharges[value] = Number.isFinite(amount) && amount > 0 ? amount : 0
+}
+
+/** 某轴某取值的加价（基线恒为 0，界面上也按 0 展示并禁用输入）。 */
+function axisChargeOfUi(row: TemplateRow, axisKey: string, value: string): number {
+  const axis = axisRowsState[row.tpl.id]?.[axisKey]
+  if (!axis) return 0
+  if (axis.baseline === value) return 0
+  return axis.charges[value] ?? 0
+}
+
+function axisCostChargeOfUi(row: TemplateRow, axisKey: string, value: string): number {
+  const axis = axisRowsState[row.tpl.id]?.[axisKey]
+  if (!axis) return 0
+  if (axis.baseline === value) return 0
+  return axis.costCharges[value] ?? 0
+}
+
+/** 改某轴的基线取值（不加价的那个）。 */
+function setAxisBaseline(row: TemplateRow, axisKey: string, value: string) {
+  const axis = axisRowsState[row.tpl.id]?.[axisKey]
+  if (!axis) return
+  axis.baseline = value
+}
+
+/**
+ * compressedPriceOf 按压缩模型算某个规格的价 = 套餐价 + Σ 各取值加价。
+ *
+ * 与后端 axisChargeCombo 同一口径：只用于界面即时预览（让运营一眼看到
+ * "8核8G 会卖多少钱"），提交的是加价本身，真值以后端为准。
+ */
+function compressedPriceOf(row: TemplateRow, values: Record<string, string>): number {
+  const base = basePriceOf(row).price
+  if (base <= 0) return 0
+  let total = base
+  for (const axis of axisRowsOf(row)) {
+    const value = values[axis.key] ?? axis.baseline
+    if (value === axis.baseline) continue
+    total += axis.charges[value] ?? 0
+  }
+  return Math.round(total * 100) / 100
+}
+
+/** 压缩预览里最高/最低规格价（让运营知道价格带有多宽）。 */
+function compressedPriceRange(row: TemplateRow): { min: number; max: number } {
+  let min = 0
+  let max = 0
+  for (const spec of rowAxisSpecs(row)) {
+    const price = compressedPriceOf(row, spec.values)
+    if (price <= 0) continue
+    if (min === 0 || price < min) min = price
+    if (price > max) max = price
+  }
+  return { min, max }
+}
+
+/** 该档位是否有单独调过价的规格。 */
+function hasOverrides(row: TemplateRow): boolean {
+  const state = specPriceState[row.tpl.id]
+  if (!state) return false
+  return rowAxisSpecs(row).some((spec) => Object.values(state[spec.key] || {}).some((v) => v > 0))
+}
+
+/**
+ * toggleSpecPriceDetail 展开/收起「逐规格定价」。
+ *
+ * 收起时**不清理**已填的单独定价：运营只是在两种视图间来回看，
+ * 清掉就等于"我查一下有没有特殊价，结果特殊价没了"。提交时也照旧带上
+ * （buildSpecPrices 直接读状态），面板上会用「已有单独定价的规格，未展开」提示，
+ * 免得运营以为展开过的编辑没生效。
+ */
+function toggleSpecPriceDetail(row: TemplateRow) {
+  expandedPriceRows[row.tpl.id] = !expandedPriceRows[row.tpl.id]
+}
+
+/**
+ * 规格定价表的列 = 当前勾选的可售周期。
+ *
+ * 价格的真源是这张表（每个规格 × 每个周期一格），不是"商品级周期价 + 倍率"：
+ * 2核 与 8核 的年付折扣本来就不该同比例，只有逐格定价才表达得出来。
+ */
+const sellableCycleColumns = computed(() =>
+  sellableCycleOptions.filter((o) => sellableCycles.value.includes(o.value)),
+)
+
+/** 可按「月付价 × 月数」推导的周期（月付及以上）；小时/天没有月数口径。 */
+const sellableLongCycles = computed(() =>
+  sellableCycleColumns.value.filter((o) => (cycleMeta[o.value]?.months ?? 0) > 1),
+)
+
+/** 某周期的优惠月数：取「周期价格」里运营设过的值，没设过用默认档。 */
+function planOffMonths(cycle: string): number {
+  return cyclePlanState[cycle]?.offMonths ?? cycleMeta[cycle]?.defaultOff ?? 0
+}
+
+/**
+ * 改优惠月数（规格定价表上的推导参数）。
+ *
+ * 只影响「推导」这一步，不直接改任何价格 —— 运营点「按优惠月数推导」时才按它重算。
+ * 上限是"周期月数 − 1"：至少留一个月不优惠，否则会推出 0 元周期价，
+ * 而上架后客户真的能 0 元买（这是事故，不是折扣）。
+ */
+function setPlanOffMonths(cycle: string, months: number) {
+  const max = Math.max(0, (cycleMeta[cycle]?.months ?? 1) - 1)
+  const off = Math.max(0, Math.min(Number(months) || 0, max))
+  const prev = cyclePlanState[cycle] ?? {
+    auto: cycle === 'monthly' || (cycleMeta[cycle]?.months ?? 0) > 0,
+    offMonths: cycleMeta[cycle]?.defaultOff ?? 0,
+    amount: 0,
+  }
+  cyclePlanState[cycle] = { ...prev, offMonths: off }
+}
+
+function specPriceOf(row: TemplateRow, specKey: string, cycle: string): number {
+  return specPriceState[row.tpl.id]?.[specKey]?.[cycle] ?? 0
+}
+
+function setSpecPrice(row: TemplateRow, specKey: string, cycle: string, amount: number) {
+  if (!specPriceState[row.tpl.id]) specPriceState[row.tpl.id] = {}
+  if (!specPriceState[row.tpl.id][specKey]) specPriceState[row.tpl.id][specKey] = {}
+  const next = Number.isFinite(amount) && amount > 0 ? amount : 0
+  specPriceState[row.tpl.id][specKey][cycle] = next
+}
+
+/**
+ * buildSpecPrices 组装某档位的逐规格定价（提交给后端）。
+ *
+ * 只提交**至少填了一个周期价**的规格：完全留空的规格由后端按模板/商品价回落，
+ * 提交 price=0 会被当成"这个规格卖 0 元"（危险，且语义上不对）。
+ * 填了哪些周期就写哪些周期 —— 后端按"该规格自有行即权威"处理，
+ * 所以提交前由 specPriceGaps 保证不漏（见那里的说明）。
+ */
+function buildSpecPrices(row: TemplateRow): SaleProductAxisSpecPrice[] | undefined {
+  const state = specPriceState[row.tpl.id]
+  if (!state) return undefined
+  const out: SaleProductAxisSpecPrice[] = []
+  for (const spec of rowAxisSpecs(row)) {
+    const cycles = state[spec.key]
+    if (!cycles) continue
+    // 只收有值的周期；基准价取月付（没有月付时取有价周期里最小周期作为基准）。
+    const filled = Object.entries(cycles).filter(([, v]) => v > 0)
+    if (!filled.length) continue
+    const baseCycle = cycles['monthly'] && cycles['monthly'] > 0 ? 'monthly' : filled[0][0]
+    out.push({
+      values: spec.values,
+      price: cycles[baseCycle] ?? 0,
+      cost_price: specCostOf(row, spec.key),
+      cycles: Object.fromEntries(filled.map(([c, v]) => [c, v])),
+    })
+  }
+  return out.length ? out : undefined
+}
+
+/**
+ * buildAxisCharges 组装压缩定价方案（套餐价 + 逐取值加价）。
+ *
+ * 只在有轴且套餐价大于 0 时产出：没有套餐价就没有"基线已含"的基准，
+ * 展开出来的每个规格都会缺一份底价，还不如让后端走模板/商品价的回落。
+ *
+ * 基线取值不放进 Values：它的加价恒为 0（已含在套餐价里），
+ * 提交上去只会让后端多一条"0 加价"的记录，读起来像运营填过又清空了。
+ */
+function buildAxisCharges(row: TemplateRow): SaleProductAxisChargePlan | undefined {
+  const axes = axisRowsOf(row)
+  if (!axes.length) return undefined
+  const base = basePriceOf(row)
+  if (base.price <= 0) return undefined
+  const baseValues: Record<string, string> = {}
+  const values: Record<string, Record<string, number>> = {}
+  const costValues: Record<string, Record<string, number>> = {}
+  for (const axis of axes) {
+    baseValues[axis.key] = axis.baseline
+    for (const item of axis.values) {
+      if (item.value === axis.baseline) continue
+      const charge = axis.charges[item.value] ?? 0
+      if (charge > 0) {
+        if (!values[axis.key]) values[axis.key] = {}
+        values[axis.key][item.value] = charge
+      }
+      const costCharge = axis.costCharges[item.value] ?? 0
+      if (costCharge > 0) {
+        if (!costValues[axis.key]) costValues[axis.key] = {}
+        costValues[axis.key][item.value] = costCharge
+      }
+    }
+  }
+  // 逐周期的基准价：长周期加价要按同一个比例放大（年付省 2 个月时加价也 ×10），
+  // 所以这里必须把这些周期价带上。月付即 base_price，其余读该档位的周期价。
+  const baseCycles: Record<string, number> = {}
+  for (const item of sellableCycleColumns.value) {
+    const price = rowCyclePriceOf(row, item.value)
+    if (price > 0) baseCycles[item.value] = price
+  }
+  return {
+    base_values: baseValues,
+    base_price: base.price,
+    base_cost: base.cost,
+    base_cycles: Object.keys(baseCycles).length ? baseCycles : undefined,
+    values: Object.keys(values).length ? values : undefined,
+    cost_values: Object.keys(costValues).length ? costValues : undefined,
+  }
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100
+}
+
+/**
+ * specPriceGaps 找出定价还没配全的地方。
+ *
+ * 三条检查，对应三个会真实伤到客户的缺口：
+ *  1. **月付价没填** —— 它是基准价，长周期与规格加价都要叠在它之上；
+ *     为 0 会让后端走模板/商品价的回落，而那往往是过期的参考价。
+ *  2. **勾了可售周期却没价** —— 落矩阵时会被跳过（price=0 不算可售），
+ *     客户看不到那个周期；直接说清是哪几个，比建完商品回详情页补省事。
+ *  3. **逐规格单独定价填了半截** —— 某规格只要有任意一条周期行，它就是该规格
+ *     全部周期的权威，缺的周期客户选到会被硬拒（不回落到档位价）。
+ *     填了就必须有月付价作基准（长周期由它推导）。
+ */
+function specPriceGaps(): string[] {
+  const out: string[] = []
+  for (const row of selectedRows.value) {
+    if (basePriceOf(row).price <= 0) {
+      out.push(`「${row.tpl.name}」：还没填月付价（它是基准价）`)
+      continue
+    }
+    const missingCycles = sellableCycleColumns.value
+      .filter((c) => !(rowCyclePriceOf(row, c.value) > 0))
+      .map((c) => c.label)
+    if (missingCycles.length) {
+      out.push(`「${row.tpl.name}」：${missingCycles.join('、')} 还没定价（可点「一键生成周期价」）`)
+      continue
+    }
+    // 逐规格单独定价：只在展开过、且确实填了值时检查（没填的走加价展开，不算缺）。
+    if (!expandedPriceRows[row.tpl.id] || !specPriceState[row.tpl.id]) continue
+    const missingMonthly: string[] = []
+    for (const spec of rowAxisSpecs(row)) {
+      const cycles = specPriceState[row.tpl.id][spec.key]
+      if (!cycles) continue
+      const hasAny = Object.values(cycles).some((v) => v > 0)
+      if (hasAny && !((cycles['monthly'] ?? 0) > 0)) missingMonthly.push(spec.label)
+    }
+    if (missingMonthly.length) {
+      const head = missingMonthly.slice(0, 4).join('、')
+      const more = missingMonthly.length > 4 ? ` 等 ${missingMonthly.length} 个规格` : ''
+      out.push(`「${row.tpl.name}」：${head}${more} 填了其它周期却没填月付价（长周期要按它推导）`)
+    }
+  }
+  return out
+}
+
+/**
  * 平台默认参数区默认折叠：多数档位模板已带全参数，展开反而造成"填哪个"的困惑。 */
 const platformSectionOpen = ref(false)
 
@@ -1383,9 +2069,8 @@ const priceHint = computed(() => {
   if (props.mode !== 'create') return '规格在详情页维护；此价用于「仅本地/虚拟商品」。'
   if (specMode.value !== 'template') return '未按档位配置时，商品售价以此为准。'
   const count = selectedTemplateCount.value
-  if (count === 0) return '尚未勾选档位：勾选后会把档位参考价自动带入，也可现在手填。'
-  if (count === 1) return '该价作为商品展示价；单个档位的 SKU 售价在「规格明细」里可微调。'
-  return '已选多个档位：此价是商品展示价（通常取最低档），各档位实际售价在「规格明细」分别设置。'
+  if (count === 0) return '尚未勾选档位：勾选后在「规格明细」里逐规格定价，商品展示价会取最低月付价。'
+  return '商品展示价由「规格明细」里的最低月付价自动得出，不需要在这里填。'
 })
 
 /** 档位机型短标签（步骤 3 的档位标题用）。 */
@@ -1550,6 +2235,18 @@ function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
       priceOnetime: null,
       isDefault: hasDeclaredDefault ? cfg.default === v : idx === 0,
     }))
+    // 平台参数（区域/节点/存储/镜像）不在这里列。
+    //
+    // 它们在上面「档位基线」区已有专门的控件（区域 area / 节点 node / 存储 store /
+    // 镜像 os），这里再列一次就是同一个参数两个入口 —— 用户反馈的"节点、存储下面
+    // 又有数据中心"正是这个重复。它们的取值开放与默认值由上面的控件管。
+    if ((PLATFORM_KEYS as readonly string[]).includes(key)) {
+      continue
+    }
+    // 只有一个取值的参数也不列：客户没得选，列出来只是噪音。
+    if (values.length && values.length < 2) {
+      continue
+    }
     if (values.length) {
       out.push({
         key,
@@ -1648,7 +2345,35 @@ function buildRow(tpl: SpecTemplateInfo): TemplateRow {
   for (const [k, v] of Object.entries(platformParamsOfTpl)) {
     if (!(PLATFORM_KEYS as readonly string[]).includes(k) && v != null && v !== '') row.extraPlatformParams[k] = v
   }
+  initAxisRows(tpl)
   return row
+}
+
+/**
+ * initAxisRows 为某个档位初始化压缩定价的轴状态。
+ *
+ * 基线取模板的 default（运营在模板里"默认选中"的那个取值），没有才用第一个 ——
+ * 列表顺序是编辑顺序，不代表语义上的"基准配置"，默认值才是。
+ * 套餐基准价用模板价格预填：多数档位模板的 price 就是运营心里的入门价，
+ * 预填能让"我只想改一个加价"的场景少填一次。
+ */
+function initAxisRows(tpl: SpecTemplateInfo) {
+  const sel = (tpl.option_selections || {}) as Record<
+    string,
+    { values?: string[]; range?: number[]; sku_axis?: boolean; default?: string | number }
+  >
+  const state: Record<string, AxisRow> = {}
+  for (const [key, cfg] of Object.entries(sel)) {
+    if (!cfg?.sku_axis || Array.isArray(cfg.range) || !cfg.values?.length) continue
+    const values = cfg.values.map((v) => ({ value: v, label: catalogValueLabel(key, v) || v }))
+    const declared = cfg.default != null ? String(cfg.default) : ''
+    const baseline = values.some((v) => v.value === declared) ? declared : values[0].value
+    state[key] = { key, label: platformFieldLabel(key), values, baseline, charges: {}, costCharges: {} }
+  }
+  axisRowsState[tpl.id] = state
+  if (!basePriceState[tpl.id]) {
+    basePriceState[tpl.id] = { price: tpl.price > 0 ? tpl.price : 0, cost: 0 }
+  }
 }
 
 /** 组装请求里的 option_overrides（只带开放给客户的参数与其取值加价）。 */
@@ -1981,11 +2706,13 @@ function isAutoEligible(plan: CyclePlan): boolean {
 
 /**
  * 周期价 → 提交用的「周期 → 金额」映射（未定价的周期不带）。
- * 仅建品时产出：编辑页的周期价在商品详情页的价格矩阵里维护，
- * 这里带出去只会被父页丢弃（edit.vue 不接第二个参数）。
+ *
+ * 只有**不按档位配置**时才产出：按档位配置的价格已经逐规格写进
+ * `spec_templates[].axis_prices`（后端在建品时一并落矩阵），
+ * 再从商品级写一份就成了两个真源 —— 商品级行会把所有规格的周期都覆盖成同一个价。
  */
 function cyclePriceMap(): Record<string, number> {
-  if (props.mode !== 'create') return {}
+  if (props.mode !== 'create' || specMode.value === 'template') return {}
   const out: Record<string, number> = {}
   for (const plan of cyclePlans.value) {
     if (plan.amount > 0) out[plan.cycle] = plan.amount
@@ -1994,19 +2721,37 @@ function cyclePriceMap(): Record<string, number> {
 }
 
 /**
- * 月付价兜底：运营在「销售价」填了数、却没在周期价格里填月付价时，用销售价顶上。
- * 商品展示价与实际月付价不一致是常见的困惑来源，这里让两者默认一致
- * （运营在周期价格里显式填过就尊重他填的）。
+ * 月付价兜底：建品时不再有「销售价」输入框，商品展示价（products.price）改为
+ * 从规格定价表**按最低月付价**反推（见 derivedDisplayPrice）。
  */
-function seedMonthlyFromProductPrice() {
-  if (Number(priceGen.monthly) > 0) return
-  const p = Number(form.price)
-  if (Number.isFinite(p) && p > 0) priceGen.monthly = Math.round(p * 100) / 100
-}
 
-/** 已勾选但没有价的周期（提交前提示，避免建出客户买不了的周期）。 */
-function cyclesWithoutPrice(): string[] {
-  return cyclePlans.value.filter((p) => !(p.amount > 0)).map((p) => p.label)
+/**
+ * derivedDisplayPrice 商品展示价。
+ *
+ * 两条路径各有真源：
+ *   - 按档位配置（规格定价表）：取各规格里最低的**月付价**；
+ *   - 不按档位配置（稍后手工建规格）：取「周期价格」里的月付价。
+ *
+ * 为什么取最低：列表与卡片上的价格是"起售价"，标一个高于起售价的数会让客户
+ * 点进去发现更贵；取最低是电商通行的口径（"¥29 起"）。
+ * 都没有时返回 0 —— 那种情形由前面的周期校验/规格校验先拦住。
+ */
+function derivedDisplayPrice(): number {
+  let min = 0
+  if (specMode.value === 'template') {
+    for (const row of selectedRows.value) {
+      // 各规格的月付价：基线规格就是档位月付价，其余叠加取值加价；
+      // 单独定价过的规格用它的价（compressedPriceOf 只算加价展开，这里补上覆盖）。
+      for (const spec of rowAxisSpecs(row)) {
+        const override = specPriceOf(row, spec.key, 'monthly')
+        const price = override > 0 ? override : compressedPriceOf(row, spec.values)
+        if (price > 0 && (min === 0 || price < min)) min = price
+      }
+    }
+    return min
+  }
+  const monthly = Number(priceGen.monthly)
+  return monthly > 0 ? Math.round(monthly * 100) / 100 : 0
 }
 
 /**
@@ -2037,9 +2782,9 @@ async function loadTemplates() {
  *
  * 用户要求（本轮）：选档位后把"属于规格"的字段自动填进表单，不属于规格的不填。
  *   - 属于规格 → 自动带入：产品名称、售价（单档位时）；
- *   - 不属于规格 → 保持空/原值：SKU 编码、分类、平台渠道、封面、描述、成本价。
+ *   - 不属于规格 → 保持空/原值：商品编码、分类、平台渠道、封面、描述、成本价。
  *     这些是商品的经营属性，不能由档位推导（例如分类与封面是运营决策，
- *     SKU 编码要唯一且创建后不可改）。
+ *     商品编码要唯一且创建后不可改）。
  *
  * 多档位时名称与售价不自动填：一个商品挂多个档位时，名称应是"这组规格的统称"，
  * 取任一档位的名字或价都会误导（售价更是多价，填谁都不对）。此时只提示去步骤 3 逐档定价。
@@ -2066,7 +2811,6 @@ function applyRowDefaultsToForm() {
     const platformName = platformDisplayName(form.source_provider_id)
     form.name = platformName ? `${platformName} ${spec}` : spec
   }
-  if (form.price <= 0 && row.price > 0) form.price = row.price
 }
 
 /** 平台渠道显示名（自动命名用；未选渠道时留空由运营自己起名）。 */
@@ -2134,26 +2878,7 @@ const form = reactive({
   spec_passthrough: false,
 })
 
-/**
- * 销售价变化时同步月付基准价（仅当运营还没在周期价格里填过）。
- *
- * 两个字段表达同一件事（默认按月的商品价）：让后填的那个跟上先填的，
- * 避免出现"销售价 20、月付价 0"，建出的商品展示价与下单价不一致。
- *
- * 必须放在 form 声明之后：watch 在 setup 期会立即求值一次 getter，
- * 声明顺序颠倒会命中 const 的暂时性死区，setup 抛错导致整页白屏。
- */
-watch(
-  () => form.price,
-  (value) => {
-    if (props.mode !== 'create') return
-    if (Number(priceGen.monthly) <= 0 && Number(value) > 0) {
-      priceGen.monthly = Math.round(Number(value) * 100) / 100
-    }
-  },
-)
-
-// ===== SKU 编码自动生成 =====
+// ===== 商品编码自动生成 =====
 // 编码是给系统与上游看的标识（不是展示名），手工想一个既费神又容易重名。
 // 这里按「产品类型 + 中文名转写」自动生成，运营可随时手改；
 // 一旦手改过就不再覆盖（见 codeTouched），否则改个名字把人工编码冲掉更糟。
@@ -2198,7 +2923,7 @@ const codeWordMap: Record<string, string> = {
 }
 
 /**
- * generateProductCode 由产品名生成候选 SKU 编码。
+ * generateProductCode 由产品名生成候选商品编码。
  * 规则：产品类型前缀 + 名称转写；无可用转写时退回带时间戳的前缀码，保证非空且大概率不重名。
  */
 /** 已占用的商品编码（小写），用于自动生成时避重。 */
@@ -2347,8 +3072,16 @@ function buildSpecTemplatePayload(): SaleProductSpecTemplateSelection[] | null {
       platform_params: platformParamsOfRow,
       // 客户可选配置项：只带开放给客户的参数（含取值加价），后端按档位目录补齐控件元数据。
       option_overrides: buildOptionOverrides(row),
-      price: row.price,
-      cost_price: row.costPrice,
+      // 压缩定价：套餐价 + 逐取值加价，后端按正交组合展开成各 SKU 价。
+      axis_charges: buildAxisCharges(row),
+      // 逐规格单独定价：只有运营展开调过价的规格才提交，且优先于压缩展开结果。
+      axis_prices: buildSpecPrices(row),
+      // 本档位要开卖的全部周期。后端据此把每个规格的周期价写满 ——
+      // 少写一个周期，客户选它时会被硬拒（见 expandCyclesForPlan）。
+      sellable_cycles: sellableCycles.value,
+      // 档位价与成本：月付即基准价（规格加价都叠在它之上），成本同源。
+      price: basePriceOf(row).price,
+      cost_price: basePriceOf(row).cost,
       stock: form.stock,
     })
   }
@@ -2361,7 +3094,7 @@ function buildPayload(): SaleProductCreateRequest | null {
     return null
   }
   if (props.mode === 'create' && !form.code.trim()) {
-    MessagePlugin.warning('请输入 SKU 编码')
+    MessagePlugin.warning('请输入商品编码')
     return null
   }
   // 云主机必须绑定平台渠道才有履约通道；虚拟/服务类商品（如演示虚拟主机）不强制。
@@ -2382,9 +3115,19 @@ function buildPayload(): SaleProductCreateRequest | null {
   }
   // 勾了却没定价的周期：落矩阵时会被跳过（price=0 不算可售），客户看不到它。
   // 直接拦住并说清是哪几个，比建完商品再回详情页补价省事。
-  if (props.mode === 'create') {
-    seedMonthlyFromProductPrice()
-    const missing = cyclesWithoutPrice()
+  // 规格定价表要填满：只填一半的规格会让客户选其余周期时下单失败（后端按
+  // "该规格自有行即权威"处理，不回落到商品级价）。这里拦住并指出具体缺哪几格。
+  if (props.mode === 'create' && specMode.value === 'template') {
+    const gaps = specPriceGaps()
+    if (gaps.length) {
+      MessagePlugin.warning(`规格定价还没填满 —— ${gaps.join('；')}。请补齐，或取消勾选用不到的周期`)
+      return null
+    }
+  }
+  // 不按档位配置时价格只能来自「周期价格」：勾了却留空的周期落矩阵时会被跳过
+  // （price=0 不算可售），客户看不到它 —— 直接拦住并说清是哪几个。
+  if (props.mode === 'create' && specMode.value !== 'template') {
+    const missing = cyclePlans.value.filter((p) => !(p.amount > 0)).map((p) => p.label)
     if (missing.length) {
       MessagePlugin.warning(`以下周期还没定价：${missing.join('、')}。请在「周期价格」里填价或取消勾选`)
       return null
@@ -2401,7 +3144,9 @@ function buildPayload(): SaleProductCreateRequest | null {
     // 建品时由勾选的可售周期反推（该列只认 fixed/hourly/monthly，见 derivePriceModel）；
     // 编辑既有商品时沿用原值。
     price_model: props.mode === 'create' ? derivePriceModel() : form.price_model,
-    price: form.price,
+    // 建品时的展示价由规格定价表反推（最低月付价），编辑时沿用原值：
+    // 建品页已去掉「销售价」输入框，让"展示价"与"规格实际售价"不再是两个真源。
+    price: props.mode === 'create' ? derivedDisplayPrice() : form.price,
     cost_price: form.cost_price,
     source_mode: 'self',
     source_product_id: 0,
@@ -2510,7 +3255,7 @@ function handleSaveAll() {
  * 每块各有自己的接口与成败，父页才能决定"中途失败就停在这里、不要跳走"。
  * 本方法只保证：基础信息合法，并给出该链路的更新 payload。
  *
- * 返回 `SaleProductUpdateRequest`（**不含 code**）：更新接口不接受 SKU 编码
+ * 返回 `SaleProductUpdateRequest`（**不含 code**）：更新接口不接受商品编码
  * （它是系统与上游的标识，改动会让历史订单与绑定对不上），类型上就不带这个字段，
  * 免得每个调用点各写一次解构。
  */
@@ -2892,6 +3637,276 @@ async function loadProviderNames() {
 .tpl-row__gen code {
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
   color: var(--td-text-color-primary, #333);
+}
+
+/* ===== 规格定价表（建品页价格唯一入口） ===== */
+.spec-price {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--td-component-stroke, #e7e7e7);
+}
+
+.spec-price__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.spec-price__count {
+  margin-left: 6px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.spec-price__hint {
+  flex: 1 1 240px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+.spec-price__derive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.spec-price__derive-off {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spec-price__table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.spec-price__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: max-content;
+}
+
+.spec-price__row--head {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.spec-price__cell {
+  display: inline-flex;
+  align-items: center;
+  width: 132px;
+  flex: 0 0 auto;
+}
+
+.spec-price__cell--name {
+  width: 148px;
+  font-size: 12.5px;
+  color: var(--td-text-color-primary, #333);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spec-price__empty {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+.spec-price__derive-hint {
+  font-size: 11.5px;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+.spec-price__derive-warn {
+  font-size: 11.5px;
+  color: var(--td-warning-color-6, #e37318);
+}
+
+/* ===== 档位价格（月付即基准价，长周期由它推导） ===== */
+.row-price {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+.row-price__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.row-price__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  font-size: 12.5px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.row-price__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-price__hint {
+  font-size: 11.5px;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+/* ===== 规格加价面板 ===== */
+.charge-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.charge-panel__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.charge-panel__hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+.charge-base {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+.charge-base__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 190px;
+  font-size: 12.5px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.charge-base__range {
+  padding-bottom: 8px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.charge-axis {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.charge-axis__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.charge-axis__key {
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+.charge-axis__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.charge-value {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 168px;
+  padding: 8px 10px;
+  border: 1px solid var(--td-component-border, #e0e0e0);
+  border-radius: 6px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.charge-value--base {
+  border-style: dashed;
+  background: var(--td-bg-color-container-hover, #f7f7f7);
+}
+
+.charge-value__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.charge-value__base-hint {
+  font-size: 11.5px;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+.charge-value__inputs {
+  display: flex;
+  gap: 6px;
+}
+
+.charge-value__inputs > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.spec-price__detail {
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px dashed var(--td-component-stroke, #e7e7e7);
+  border-radius: 6px;
+}
+
+.spec-price__detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.spec-price__cell--wide {
+  width: 160px;
+}
+
+.spec-price__preview {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
 }
 
 .tpl-options {

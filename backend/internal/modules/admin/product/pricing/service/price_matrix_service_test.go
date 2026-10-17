@@ -357,3 +357,38 @@ func TestApplyUpstreamPricesDerivedStillUpdates(t *testing.T) {
 		t.Errorf("按规则推导的售价应照常更新，got price=%v cost=%v", repo.rows[0].Price, repo.rows[0].CostPrice)
 	}
 }
+
+// TestSellableCyclesIncludesSpecRows 各 SKU 的自有周期必须被返回。
+//
+// 实测故障：SellableCycles 用 List(productID, 0) 取行（那个方法固定按
+// product_spec_id 过滤），拿到的永远只有商品级行，于是 bySpec 恒为空、
+// 每个 SKU 都回落到商品级周期 —— 客户选了只配月付的规格，界面上仍能看到年付，
+// 下单时才被"该商品不提供年付"硬拒。这里守住"SKU 行必须进 bySpec"。
+func TestSellableCyclesIncludesSpecRows(t *testing.T) {
+	repo := &fakeRepo{rows: []model.ProductPrice{
+		{ProductID: 7, ProductSpecID: 0, Cycle: "monthly", Currency: "CNY", Price: 10, Status: 1},
+		{ProductID: 7, ProductSpecID: 3, Cycle: "monthly", Currency: "CNY", Price: 12, Status: 1},
+		{ProductID: 7, ProductSpecID: 3, Cycle: "annually", Currency: "CNY", Price: 120, Status: 1},
+		// 停用行与 0 元行不算可售。
+		{ProductID: 7, ProductSpecID: 4, Cycle: "monthly", Currency: "CNY", Price: 12, Status: 0},
+		{ProductID: 7, ProductSpecID: 5, Cycle: "monthly", Currency: "CNY", Price: 0, Status: 1},
+	}}
+	svc := NewPriceMatrixService(repo, nil, nil)
+
+	product, bySpec, err := svc.SellableCycles(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("SellableCycles 失败：%v", err)
+	}
+	if len(product) != 1 || product[0] != "monthly" {
+		t.Fatalf("商品级周期应只有 monthly，实际 %v", product)
+	}
+	if got := bySpec[3]; len(got) != 2 || got[0] != "monthly" || got[1] != "annually" {
+		t.Fatalf("SKU 3 应有 monthly+annually，实际 %v", got)
+	}
+	if _, ok := bySpec[4]; ok {
+		t.Fatal("停用档位不该进可售周期")
+	}
+	if _, ok := bySpec[5]; ok {
+		t.Fatal("0 元档位不该进可售周期")
+	}
+}

@@ -22,7 +22,7 @@
     <FilterCard>
       <div class="field">
         <span class="field__label">关键词</span>
-        <t-input v-model="filters.keyword" placeholder="产品名称 / SKU 编码" clearable @enter="handleSearch" />
+        <t-input v-model="filters.keyword" placeholder="产品名称 / 商品编码" clearable @enter="handleSearch" />
       </div>
       <div class="field">
         <span class="field__label">分类</span>

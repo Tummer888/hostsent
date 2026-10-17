@@ -87,12 +87,6 @@
         <template #bandwidth="{ row }"
           ><span>{{ row.bandwidth === 0 ? '不限' : row.bandwidth + ' Mbps' }}</span></template
         >
-        <!-- 0 元参考售价要显式标出来：它在建品时会变成 0 元 SKU，是事故前兆，
-             显示成空白或 "¥0" 都会被一眼扫过去。 -->
-        <template #price="{ row }">
-          <span v-if="!row.price || row.price <= 0" class="price-zero">0 元（未定价）</span>
-          <span v-else>{{ formatPrice(row.price) }}</span>
-        </template>
         <template #platform="{ row }">
           <t-tag v-if="row.platform_params" theme="success" variant="light" size="small" shape="round">已配映射</t-tag>
           <t-tag v-else theme="warning" variant="light" size="small" shape="round">缺平台映射</t-tag>
@@ -515,7 +509,7 @@
                 商品名：<strong>{{ previewName || '—' }}</strong>
               </div>
               <div class="preview-line">
-                SKU 编码：<code>{{ previewCode || '—' }}</code>
+                规格编码（SKU）：<code>{{ previewCode || '—' }}</code>
               </div>
               <div class="preview-line">描述：{{ previewDesc || '—' }}</div>
               <div class="preview-line">
@@ -593,7 +587,6 @@ const columns: PrimaryTableCol<SpecTemplateInfo>[] = [
   { colKey: 'specs', title: '基线配置', width: 160 },
   { colKey: 'bandwidth', title: '带宽', width: 100 },
   { colKey: 'platform', title: '平台映射', width: 110 },
-  { colKey: 'price', title: '参考售价', width: 100 },
   { colKey: 'status', title: '状态', width: 90 },
   {
     colKey: 'action',
@@ -795,7 +788,6 @@ const natLimitOptions = [
 const form = reactive<{
   id: number
   name: string
-  price: number | undefined
   sort_order: number
   status: number
   disk: number
@@ -807,11 +799,11 @@ const form = reactive<{
 
 function emptyForm() {
   return {
-    // price 初始 undefined（不是 0）：0 元参考售价会生成 0 元 SKU，
-    // 显示成空 + 必填校验，比预填 0 再拦住更不容易漏。
+    // 参考售价与系统盘已从档位信息移除：价格在建品时逐规格填，
+    // 系统盘是 system_disk_size 配置项（baselineDisk 从这里取）。
+    // 下面 disk/disk_type 仍保留为**后端回落值**（spec_values 推导用），不再由界面输入。
     id: 0,
     name: '',
-    price: undefined as number | undefined,
     sort_order: 0,
     status: 1,
     disk: 40,
@@ -1451,7 +1443,6 @@ async function openEdit(row: SpecTemplateInfo) {
   Object.assign(form, {
     id: row.id,
     name: row.name,
-    price: row.price,
     sort_order: row.sort_order,
     status: row.status,
     disk: row.disk,
@@ -1787,20 +1778,8 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(213, 73, 65, 0.18);
 }
 
-/* 0 元参考售价：建品时会变成 0 元 SKU，是事故前兆，用警示色标出来。 */
-.price-zero {
-  color: var(--td-warning-color, #e37318);
-  font-weight: 600;
-}
 
 /* 表单内的警示文案（如 0 元价提示），紧跟在输入框下方。 */
-.price-warn {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--td-warning-color, #e37318);
-}
 
 /* 表单内的普通说明文字。 */
 .form-hint {

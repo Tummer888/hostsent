@@ -52,7 +52,7 @@ export interface SaleProductCreateRequest {
 /** 建品时选定一个规格模板（含就地调整后的参数） */
 export interface SaleProductSpecTemplateSelection {
   spec_template_id: number
-  /** 覆盖从模板派生的 SKU 编码与名称（留空自动派生） */
+  /** 覆盖从模板派生的规格编码（SKU）与名称（留空自动派生） */
   spec_code?: string
   name?: string
   /** 售价；为 0 时回落模板参考售价，再回落商品售价 */
@@ -65,6 +65,23 @@ export interface SaleProductSpecTemplateSelection {
   platform_params?: Record<string, unknown> | null
   /** 就地覆盖的客户选配项（T4.5）：留空按档位 option_selections 自动生成 */
   option_overrides?: SaleProductOptionOverride[]
+  /**
+   * 压缩定价（T4.8，默认方式）：套餐价 + 各取值加价，由后端按正交组合展开。
+   * 多数商品只需要填这个，不必逐规格定价。
+   */
+  axis_charges?: SaleProductAxisChargePlan
+  /**
+   * 逐规格**单独定价**（T4.7/T4.8）：只放运营主动单独调过价的规格，
+   * 优先于 axis_charges 的展开结果。
+   */
+  axis_prices?: SaleProductAxisSpecPrice[]
+  /**
+   * 本档位要开卖的计费周期。
+   *
+   * 后端据此把每个规格的周期价写满（某规格有任意一行即为其全部周期的权威，
+   * 少写一个周期客户选它时会被硬拒），没给该周期价时按月数从月付推导。
+   */
+  sellable_cycles?: string[]
 }
 
 export interface SaleProductCloneRequest {
@@ -663,6 +680,53 @@ export interface SpecOptionSelection {
 /** 配置档勾选的参数 → 勾选结果 */
 export type SpecOptionSelections = Record<string, SpecOptionSelection>
 
+/**
+ * 建品时逐规格**单独定价**（T4.7/T4.8）。
+ *
+ * values 是轴取值组合（键＝配置档参数名、值＝取值），后端按它精确匹配到对应规格；
+ * 不传 spec_code 是因为编码由后端按组合确定性派生，让前端复刻那套规则会多一处
+ * 必须保持同步的实现（改一处忘一处就静默错价）。
+ *
+ * 压缩定价下这里通常为空：价格由 axis_charges 按取值加价展开。
+ * 只有运营主动"逐规格单独定价"的规格才出现，且优先于展开结果。
+ */
+export interface SaleProductAxisSpecPrice {
+  values: Record<string, string>
+  /** 该规格的基准价（月付价）。 */
+  price: number
+  cost_price: number
+  /** 逐周期价（周期 → 金额）；留空的周期不写矩阵。 */
+  cycles?: Record<string, number>
+}
+
+/**
+ * 压缩定价（T4.8）：套餐价 + 逐取值加价，后端按正交组合展开成各 SKU 价。
+ *
+ * 某个规格的价 = base_price + Σ(该组合里各取值相对基线的加价)。
+ * 基线取值不加价（已含在套餐价里）。例：套餐 100、cpu 基线 2核（4核 +10、8核 +20）、
+ * 内存基线 2G（4G +10、8G +20）→ 4核8G = 100+10+20 = 130。
+ */
+export interface SaleProductAxisChargePlan {
+  /** 每个轴的基线取值（该取值不加价）；未声明时后端取模板默认值，再取第一个取值。 */
+  base_values: Record<string, string>
+  /** 套餐基准价（月付），对应"所有轴都取基线值"的那个规格。 */
+  base_price: number
+  /** 套餐基准成本（月付），选填。 */
+  base_cost?: number
+  /**
+   * 套餐价的逐周期价（周期 → 金额），选填。
+   *
+   * 展开时用它算该周期的**基准倍率**，加价按同一比例放大 ——
+   * 否则"年付省 2 个月"的优惠只在套餐上生效、加价反而按满月数收，
+   * 客户选高配年付时会贵得不成比例。
+   */
+  base_cycles?: Record<string, number>
+  /** 逐轴取值加价（月付口径）：参数名 → 取值 → 加价；基线取值不填。 */
+  values?: Record<string, Record<string, number>>
+  /** 逐轴取值成本加价（月付口径），选填；口径同 values。 */
+  cost_values?: Record<string, Record<string, number>>
+}
+
 /** 建品时就地覆盖的客户选配项 */
 export interface SaleProductOptionOverride {
   option_key: string
@@ -1021,64 +1085,3 @@ export interface PricePolicyListResponse {
   meta: ListMeta
 }
 
-// ============================================================================
-// 上游转售商品的 SKU 维度（T4.8）
-// ============================================================================
-
-/** 一个可做 SKU 维度的取值。 */
-export interface UpstreamAxisValueInfo {
-  /** 上游取值 id（下发时作为 configoption 的值）。 */
-  upstream_sub_id: number
-  /** 展示名（"4核"）。 */
-  label: string
-  /** 上游原始取值名（"4|4核"）。 */
-  raw: string
-  /** 各周期加价（上游口径，元）。 */
-  monthly: number
-  quarterly: number
-  annually: number
-  onetime: number
-}
-
-/** 一个可做 SKU 维度的上游配置项。 */
-export interface UpstreamAxisOptionInfo {
-  /** 本地参数名（cpu / memory / system_disk_size…），保存选择时用它。 */
-  key: string
-  label: string
-  option_name: string
-  /** 上游锁定（仅一个可见取值）：做维度只会产出 1 个规格。 */
-  locked: boolean
-  selected: boolean
-  values: UpstreamAxisValueInfo[]
-  /** 若选上它，组合数会变成多少（界面实时预览）。 */
-  combination_if_selected: number
-}
-
-/** 上游商品的 SKU 维度设置视图。 */
-export interface UpstreamAxisOptionsInfo {
-  product_id: number
-  candidates: UpstreamAxisOptionInfo[]
-  selected_keys: string[]
-  /** 当前选择会生成的规格数（未选任何维度时为 0）。 */
-  combination_count: number
-  /** 组合数上限（界面对照展示）。 */
-  max_combinations: number
-  existing_spec_count: number
-  /** 非空表示当前选择有问题（如某个已保存的维度已失效）。 */
-  notice?: string
-}
-
-/** 保存 SKU 维度选择。 */
-export interface UpstreamAxisSaveRequest {
-  /** 选中的参数名列表；空数组表示取消全部维度。 */
-  keys: string[]
-}
-
-/** 按维度生成规格的结果。 */
-export interface UpstreamAxisGenerateResult {
-  specs: SaleProductSpecInfo[]
-  /** 新增与更新的条数（幂等重跑时 updated 等于总数、created 为 0）。 */
-  created: number
-  updated: number
-  combination_count: number
-}

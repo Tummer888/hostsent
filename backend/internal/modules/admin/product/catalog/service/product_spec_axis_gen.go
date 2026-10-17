@@ -21,6 +21,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
 	"hostsent/backend/internal/modules/admin/product/catalog/model"
+	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/specatom"
 )
 
@@ -375,6 +376,19 @@ func (s *productService) generateAxisSpecsFromTemplate(
 		platformParams = strings.TrimSpace(tpl.PlatformParams)
 	}
 	axisKeys := plan.axisKeys()
+	// 各轴的模板默认值：压缩定价定基线时优先采用它 —— 模板里"默认选中 4核"的那个
+	// 4核就是运营心里的基线，比"取值列表第一个"更可靠（列表顺序是编辑顺序，不是语义）。
+	axisDefaults := map[string]string{}
+	for _, key := range axisKeys {
+		if def := strings.TrimSpace(selections[key].Default.String()); def != "" {
+			axisDefaults[key] = def
+		}
+	}
+	// 压缩定价：套餐价即"全轴取基线"那个规格的价。商品级/档位价留空时，
+	// 基线价同时也是商品展示价的天然来源（展示价取最低规格价，基线通常正是最低）。
+	if sel.AxisCharges != nil && sel.Price <= 0 && sel.AxisCharges.BasePrice > 0 {
+		sel.Price = sel.AxisCharges.BasePrice
+	}
 	out := make([]dto.ProductSpecInfo, 0, len(plan.Combinations))
 	for _, combo := range plan.Combinations {
 		mergedSpecs, leftover, err := applyAxisToSpecValues(tpl.ProviderType, specValues, combo)
@@ -393,14 +407,33 @@ func (s *productService) generateAxisSpecsFromTemplate(
 		if name == "" {
 			name = tpl.Name
 		}
+		// 价格优先级（T4.8 压缩定价）：
+		//   1. 该组合**单独定价**（运营主动展开逐规格调过价的那些）；
+		//   2. 压缩定价展开（套餐价 + 各取值加价叠加）；
+		//   3. 档位价 → 模板参考价 → 商品价 三级兜底。
+		axisPrice := dto.ProductAxisSpecPrice{}
 		price := sel.Price
-		// 逐规格定价优先（T4.7）：运营在规格明细里给"2核"和"4核"各填了价。
-		// 按取值组合精确匹配（键值都要对上），命中的那一项覆盖档位/模板/商品的三级回落。
 		costPrice := sel.CostPrice
-		if axisPrice, ok := matchAxisPrice(sel.AxisPrices, combo); ok {
-			price = axisPrice.Price
-			if axisPrice.CostPrice > 0 {
-				costPrice = axisPrice.CostPrice
+		if matched, ok := matchAxisPrice(sel.AxisPrices, combo); ok {
+			axisPrice = matched
+			price = matched.Price
+			if matched.CostPrice > 0 {
+				costPrice = matched.CostPrice
+			}
+		} else if sel.AxisCharges != nil {
+			charged, chargedCost, chargedCycles, cerr := axisChargeCombo(combo, sel.AxisCharges, plan, axisDefaults)
+			if cerr != nil {
+				return out, fmt.Errorf("规格模板「%s」：%w", tpl.Name, cerr)
+			}
+			if charged > 0 {
+				price = charged
+				// 成本价：套餐成本 + 各取值成本加价；压缩方案没给成本时保留请求里的档位成本。
+				if chargedCost > 0 || sel.AxisCharges.BaseCost > 0 {
+					costPrice = chargedCost
+				}
+				if len(chargedCycles) > 0 {
+					axisPrice.Cycles = chargedCycles
+				}
 			}
 		}
 		if price <= 0 {
@@ -408,6 +441,12 @@ func (s *productService) generateAxisSpecsFromTemplate(
 		}
 		if price <= 0 {
 			price = product.Price
+		}
+		// 周期价补满：请求声明的可售周期里，没有明确价的按周期月数从月付推导。
+		// 不能只写"填过的周期"——某规格有任意一行矩阵即为它全部周期的权威，
+		// 少写的周期会让客户下单被硬拒（详见 expandCyclesForPlan 注释）。
+		if cycles := expandCyclesForPlan(price, sel.SellableCycles, axisPrice.Cycles); len(cycles) > 0 {
+			axisPrice.Cycles = cycles
 		}
 		stock := sel.Stock
 		if stock == 0 {
@@ -438,6 +477,14 @@ func (s *productService) generateAxisSpecsFromTemplate(
 		} else if err := s.repo.CreateSpec(ctx, item); err != nil {
 			return out, fmt.Errorf("规格模板「%s」生成 SKU %s 失败：%w", tpl.Name, code, err)
 		}
+		// 该规格的逐周期价写进它自己的矩阵行。
+		// 未提供可售周期且没有单独定价时不写 —— 客户下单时回落商品级矩阵或该规格基准价。
+		// 一旦写了就必须写满（expandCyclesForPlan 已保证）：有任意一行即为其全部周期的权威。
+		if len(axisPrice.Cycles) > 0 {
+			if werr := s.saveSpecCyclePrices(ctx, productID, item.ID, axisPrice.Cycles, costPrice); werr != nil {
+				return out, fmt.Errorf("规格「%s」周期价写入失败：%w", name, werr)
+			}
+		}
 		// 平台绑定：合并后的参数即该 SKU 的边界写参数。
 		if strings.TrimSpace(mergedParams) != "" && s.bindingWriter != nil {
 			_ = s.bindingWriter.UpsertConfirmedProductSpecBinding(
@@ -456,4 +503,53 @@ func (s *productService) generateAxisSpecsFromTemplate(
 		})
 	}
 	return out, nil
+}
+
+// saveSpecCyclePrices 把一个规格的逐周期价写进它自己的矩阵行（T4.7）。
+//
+// 为什么按规格写矩阵而不是只写 product_specs.price：矩阵优先于规格价，
+// 而客户实际看到并下单的是矩阵。长周期常有独立折扣（年付九折），
+// 只给基准价 + 全局倍率无法表达"2核年付"和"8核年付"折扣不同。
+//
+// **必须写全**：某个规格只要有任意一条矩阵行，它就是该规格所有周期的权威
+// （见 priceMatrixService.CycleBasePrice）—— 客户选这个规格的其它周期时不会
+// 回落到商品级价，而是直接报"该商品不提供季付"。所以调用方（建品页）会先保证
+// 每个可售周期都填了价；这里对 0/负价**报错**而不是跳过，避免静默留下半张表。
+//
+// 未装配价矩阵写入能力时静默跳过（规格价本身仍可用）：建品不该因为
+// 价格能力未装配而整体失败，运营可在价格页补。
+func (s *productService) saveSpecCyclePrices(ctx context.Context, productID, specID uint64, cycles map[string]float64, costPrice float64) error {
+	if s.cycleMatrixWriter == nil || specID == 0 || len(cycles) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(cycles))
+	for cycle := range cycles {
+		names = append(names, cycle)
+	}
+	sort.Strings(names)
+	rows := make([]CyclePriceRow, 0, len(names))
+	for _, cycle := range names {
+		code := billingcycle.Normalize(cycle)
+		if code == "" {
+			// 不认识的周期名直接报错：静默丢弃会让运营以为价填上了。
+			return fmt.Errorf("不支持的计费周期「%s」", cycle)
+		}
+		price := round2Price(cycles[cycle])
+		if price <= 0 {
+			// 0 元周期价是事故前兆（上架后客户可 0 元下单），也说明这个周期没定完价。
+			// 报错而不是跳过：跳过会让该规格留下一张"部分周期"的矩阵，
+			// 客户选那些周期时被硬拒（而不是回落到商品级价）。
+			return fmt.Errorf("周期「%s」的售价必须大于 0", billingcycle.Name(code))
+		}
+		rows = append(rows, CyclePriceRow{
+			Cycle:     code,
+			Price:     price,
+			CostPrice: costPrice,
+			Source:    "manual",
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return s.cycleMatrixWriter.SaveSpecPrices(ctx, productID, specID, rows)
 }

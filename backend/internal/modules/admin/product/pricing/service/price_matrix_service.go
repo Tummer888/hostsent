@@ -377,14 +377,24 @@ func (s *priceMatrixService) EnabledCycles(ctx context.Context, productID uint64
 }
 
 // SellableCycles 商品级 + 各 SKU 可售周期，供用户端/开放平台展示周期选择。
+//
+// 必须一次取全（商品级 + 全部 SKU 级）再分组：List(productID, 0, currency) 只返回
+// 商品级行，用它分组会得到一份"永远没有 SKU 行"的结果，于是每个 SKU 都回落到
+// 商品级周期 —— 客户选了规格后看到的周期与它自己的定价对不上
+// （实测：SKU 只配了月付，客户仍能选到年付，下单时才被"该商品不提供年付"拒绝）。
+// ListByProductIDs 不加 spec 过滤，是这里唯一能拿到全量行的入口。
 func (s *priceMatrixService) SellableCycles(ctx context.Context, productID uint64) ([]string, map[uint64][]string, error) {
-	rows, err := s.repo.List(ctx, productID, 0, defaultCurrency)
+	rows, err := s.repo.ListByProductIDs(ctx, []uint64{productID}, defaultCurrency)
 	if err != nil {
 		return nil, nil, err
 	}
+	// 商品级周期只认 spec_id=0 的行：它表示"这个商品整体能卖哪些周期"，
+	// 混进 SKU 行会让商品级凭空多出只有某个 SKU 才有的周期。
+	productRows := make([]model.ProductPrice, 0, len(rows))
 	bySpecRows := map[uint64][]model.ProductPrice{}
 	for _, r := range rows {
 		if r.ProductSpecID == 0 {
+			productRows = append(productRows, r)
 			continue
 		}
 		bySpecRows[r.ProductSpecID] = append(bySpecRows[r.ProductSpecID], r)
@@ -395,7 +405,7 @@ func (s *priceMatrixService) SellableCycles(ctx context.Context, productID uint6
 			bySpec[specID] = cycles
 		}
 	}
-	return sellableFromRows(rows), bySpec, nil
+	return sellableFromRows(productRows), bySpec, nil
 }
 
 // sellableFromRows 从价格行筛出可售周期（启用且售价 > 0），按规范顺序。

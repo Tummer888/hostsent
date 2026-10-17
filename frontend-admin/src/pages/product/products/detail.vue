@@ -141,84 +141,6 @@
         <!-- ══════════ 规格变体（SKU） ══════════ -->
         <t-tab-panel value="specs" label="规格变体（SKU）">
           <div class="tabs-section">
-            <!--
-              ══════════ 上游商品的 SKU 维度（T4.8）══════════
-              对接魔方财务的商品的差异都写在「配置项」里（CPU 4核/8核、内存 8G/16G），
-              上游没有本地规格模板。这里让运营声明哪些配置项属于"规格维度"，
-              按取值组合展开成多个独立 SKU（可分别定价与设库存）。
-              不设维度则维持原行为：一个商品 + 客户选配项，下单时就地选配置。
-            -->
-            <div v-if="isUpstreamChain" class="axis-panel">
-              <div class="axis-panel__head">
-                <div class="axis-panel__title">
-                  <span>SKU 维度</span>
-                  <t-tag
-                    v-if="axisInfo && axisInfo.selected_keys.length"
-                    theme="primary"
-                    variant="light"
-                    size="small"
-                    shape="round"
-                  >
-                    已选 {{ axisInfo.selected_keys.length }} 项 → {{ axisInfo.combination_count }} 个规格
-                  </t-tag>
-                </div>
-                <span class="axis-panel__hint">
-                  勾选"每个取值都是一台不同机器"的配置项（CPU、内存这类离散规格）；带宽、系统盘这类连续可调量不要勾
-                  —— 那应由客户下单时选。
-                </span>
-              </div>
-              <t-loading v-if="axisLoading" size="small" />
-              <template v-else-if="axisInfo">
-                <p v-if="axisInfo.notice" class="axis-panel__warn">{{ axisInfo.notice }}</p>
-                <p v-if="!axisInfo.candidates.length" class="axis-panel__empty">
-                  该商品的上游配置项里没有可做维度的离散多值项（单值项做维度只会产出 1 个规格，数量型项客户填的是连续值）。
-                </p>
-                <div v-else class="axis-list">
-                  <label
-                    v-for="cand in axisInfo.candidates"
-                    :key="cand.key"
-                    class="axis-item"
-                    :class="{ 'axis-item--on': axisSelected.includes(cand.key), 'axis-item--locked': cand.locked }"
-                  >
-                    <t-checkbox
-                      :checked="axisSelected.includes(cand.key)"
-                      :disabled="cand.locked"
-                      @change="(v: boolean) => toggleAxis(cand.key, v)"
-                    />
-                    <div class="axis-item__body">
-                      <div class="axis-item__line">
-                        <span class="axis-item__label">{{ cand.label }}</span>
-                        <code class="axis-item__key">{{ cand.key }}</code>
-                        <span class="axis-item__count">{{ cand.values.length }} 个取值</span>
-                        <t-tag v-if="cand.locked" variant="light" size="small" shape="round">上游锁定</t-tag>
-                      </div>
-                      <div class="axis-item__values">{{ cand.values.map((v) => v.label).join('、') }}</div>
-                    </div>
-                  </label>
-                </div>
-                <div class="axis-panel__foot">
-                  <span class="axis-panel__count">
-                    将生成
-                    <b :class="{ 'axis-panel__count--over': axisOverLimit }">{{ axisCombination }}</b>
-                    个规格（上限 {{ axisInfo.max_combinations }}）
-                    <template v-if="axisInfo.existing_spec_count">· 现有 {{ axisInfo.existing_spec_count }} 个</template>
-                  </span>
-                  <t-space size="small">
-                    <t-button size="small" variant="outline" :loading="axisSaving" @click="saveAxis">保存维度</t-button>
-                    <t-button
-                      size="small"
-                      theme="primary"
-                      :loading="axisGenerating"
-                      :disabled="!axisSelected.length || axisOverLimit"
-                      @click="generateAxisSpecs"
-                    >
-                      生成规格
-                    </t-button>
-                  </t-space>
-                </div>
-              </template>
-            </div>
-
             <div class="table-card__head">
               <t-space size="small">
                 <span class="table-card__meta">共 {{ specs.length }} 个规格</span>
@@ -673,9 +595,6 @@ import {
   getSpecAtomList,
   getSpecBindingList,
   getSpecTemplateList,
-  getUpstreamAxisOptions,
-  generateUpstreamAxisSpecs,
-  saveUpstreamAxisOptions,
   updateProduct,
   updateProductSpec,
   upsertSpecBinding,
@@ -711,7 +630,6 @@ import type {
   SaleProductUpstreamOption,
   SpecAtomInfo,
   SpecBindingInfo,
-  UpstreamAxisOptionsInfo,
   SpecBindingUpsertRequest,
   SpecTemplateInfo,
 } from '@/types/interface'
@@ -742,86 +660,6 @@ const { loadCategories } = useCategoryOptions()
 
 const isUpstreamChain = computed(() => product.value?.source_mode === 'upstream')
 
-// ===== 上游商品的 SKU 维度（T4.8）=====
-// 声明哪些上游配置项属于"规格维度"，按取值组合展开成多个独立 SKU。
-// 与自营的区别：上游没有规格模板，维度选择存在商品行上（products.sku_axes），
-// 因为上游配置项是覆盖式重写的，标记放那里会被下次同步抹掉。
-const axisInfo = ref<UpstreamAxisOptionsInfo | null>(null)
-const axisLoading = ref(false)
-const axisSaving = ref(false)
-const axisGenerating = ref(false)
-/** 界面上当前的勾选（可能尚未保存）；保存后与 axisInfo.selected_keys 一致。 */
-const axisSelected = ref<string[]>([])
-
-/** 按当前勾选实时算组合数（不必等保存就能看到会生成多少个规格）。 */
-const axisCombination = computed(() => {
-  const info = axisInfo.value
-  if (!info || !axisSelected.value.length) return 0
-  let total = 1
-  for (const key of axisSelected.value) {
-    const cand = info.candidates.find((c) => c.key === key)
-    if (!cand || !cand.values.length) continue
-    total *= cand.values.length
-  }
-  return total
-})
-
-const axisOverLimit = computed(
-  () => !!axisInfo.value && axisCombination.value > axisInfo.value.max_combinations,
-)
-
-async function loadAxisOptions() {
-  if (!isUpstreamChain.value) return
-  axisLoading.value = true
-  try {
-    const info = await getUpstreamAxisOptions(Number(route.params.id))
-    axisInfo.value = info
-    axisSelected.value = [...info.selected_keys]
-  } catch {
-    // 拉不到就不展示该面板（老商品/上游未同步都可能失败），不打断整页。
-    axisInfo.value = null
-  } finally {
-    axisLoading.value = false
-  }
-}
-
-function toggleAxis(key: string, checked: boolean) {
-  const next = new Set(axisSelected.value)
-  if (checked) next.add(key)
-  else next.delete(key)
-  axisSelected.value = Array.from(next).sort()
-}
-
-async function saveAxis() {
-  axisSaving.value = true
-  try {
-    const info = await saveUpstreamAxisOptions(Number(route.params.id), { keys: axisSelected.value })
-    axisInfo.value = info
-    axisSelected.value = [...info.selected_keys]
-    MessagePlugin.success('SKU 维度已保存')
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存失败')
-  } finally {
-    axisSaving.value = false
-  }
-}
-
-async function generateAxisSpecs() {
-  axisGenerating.value = true
-  try {
-    // 先保存再生成：避免运营改了勾选直接点生成、结果按旧选择跑。
-    await saveUpstreamAxisOptions(Number(route.params.id), { keys: axisSelected.value })
-    const result = await generateUpstreamAxisSpecs(Number(route.params.id))
-    MessagePlugin.success(
-      `已生成 ${result.combination_count} 个规格（新增 ${result.created}、更新 ${result.updated}）`,
-    )
-    await Promise.all([loadSpecs(), loadAxisOptions()])
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '生成失败')
-  } finally {
-    axisGenerating.value = false
-  }
-}
 /** 上游商品的规格由上游下发，本地只读展示（与规格页签的提示文案一致）。 */
 const canEditSpecs = computed(() => canUpdate && !isUpstreamChain.value)
 
@@ -1051,7 +889,7 @@ function onSpecTemplateChange(value?: number | string) {
   MessagePlugin.info(`已按模板「${tpl.name}」带出规格参数，可按需修改`)
 }
 
-/** 由模板派生 SKU 编码：规格族-核数/内存/磁盘（与后端 deriveSpecCode 同口径）。 */
+/** 由模板派生规格编码（SKU）：规格族-核数/内存/磁盘（与后端 deriveSpecCode 同口径）。 */
 function deriveSpecCodeFromTemplate(tpl: SpecTemplateInfo): string {
   const parts: string[] = []
   if (tpl.spec_family) parts.push(tpl.spec_family)
@@ -1417,7 +1255,7 @@ async function handleSave() {
       }
     }
 
-    // 2) 基础信息（更新接口不接受 code，SKU 编码不可变）
+    // 2) 基础信息（更新接口不接受 code，商品编码不可变）
     const { code: _code, ...rest } = payload
     void _code
     await updateProduct(id, rest)
@@ -1453,7 +1291,6 @@ onMounted(() => {
   loadAtomsAndTemplates()
   void loadProviderNames()
   loadDetail()
-  void loadAxisOptions()
 })
 </script>
 
@@ -1572,104 +1409,4 @@ onMounted(() => {
   }
 }
 
-/* ===== 上游商品的 SKU 维度面板（T4.8）===== */
-.axis-panel {
-  margin-bottom: 12px;
-  padding: 12px;
-  border-left: 3px solid var(--td-brand-color, #0052d9);
-  border-radius: 0 8px 8px 0;
-  background: var(--td-bg-color-container-hover, #f3f3f3);
-}
-.axis-panel__head {
-  margin-bottom: 10px;
-}
-.axis-panel__title {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  font-weight: 500;
-}
-.axis-panel__hint {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder, #8b8b8b);
-}
-.axis-panel__warn {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--td-error-color-6, #d54941);
-}
-.axis-panel__empty {
-  margin: 0;
-  font-size: 13px;
-  color: var(--td-text-color-placeholder, #8b8b8b);
-}
-.axis-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.axis-item {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--td-bg-color-container, #fff);
-  cursor: pointer;
-  transition: box-shadow 0.15s;
-}
-.axis-item--on {
-  box-shadow: inset 0 0 0 1px var(--td-brand-color, #0052d9);
-}
-.axis-item--locked {
-  opacity: 0.72;
-  cursor: not-allowed;
-}
-.axis-item__body {
-  flex: 1;
-  min-width: 0;
-}
-.axis-item__line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.axis-item__label {
-  font-weight: 500;
-}
-.axis-item__key {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder, #8b8b8b);
-}
-.axis-item__count {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder, #8b8b8b);
-}
-.axis-item__values {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--td-text-color-secondary, #666);
-  overflow-wrap: anywhere;
-}
-.axis-panel__foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
-}
-.axis-panel__count {
-  font-size: 13px;
-}
-.axis-panel__count b {
-  font-weight: 500;
-}
-.axis-panel__count--over {
-  color: var(--td-error-color-6, #d54941);
-}
 </style>

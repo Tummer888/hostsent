@@ -565,7 +565,7 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	// SQLSTATE 23505。实测故障：运营用前端自动生成的 ch-4-c-6g 再建一个「魔方云 4核6G」时，
 	// 界面只显示一行 SQL 报错，看不出是编码重复。这里在落库前查一遍，给出可读原因。
 	if dup, err := s.repo.FindByCode(ctx, item.Code); err == nil && dup != nil {
-		return nil, fmt.Errorf("%w：编码「%s」已被商品「%s」占用，请修改 SKU 编码",
+		return nil, fmt.Errorf("%w：编码「%s」已被商品「%s」占用，请修改商品编码",
 			ErrProductCodeExists, item.Code, dup.Name)
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -587,6 +587,10 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	// 商品行已存在，单个模板失败不回滚商品（运营可在详情页重试），但会把原因带回前端。
 	if len(req.SpecTemplates) > 0 {
 		generated, genErr := s.generateSpecsFromTemplates(ctx, item.ID, req.SpecTemplates, operatorID, operatorName)
+		// 展示价（products.price）回填为最低规格价：前端会自己算一个，但接口才是唯一入口
+		// （开放平台、批量导入、脚本都直接打接口）。不回填的话这些路径建出的商品在
+		// 列表与卡片上显示 0 元，客户点进去才有价 —— 看起来像免费商品。
+		s.syncDisplayPriceFromSpecs(ctx, item.ID)
 		info, ferr := s.FindByID(ctx, item.ID)
 		if ferr != nil {
 			return nil, ferr
@@ -598,6 +602,36 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 		return info, nil
 	}
 	return s.FindByID(ctx, item.ID)
+}
+
+// syncDisplayPriceFromSpecs 把商品的展示价（products.price）对齐到最低的启用规格价。
+//
+// 为什么由服务端做：产品/SPU 级价格在自营链路里已经不再是定价入口（定价在规格上），
+// 但它仍是列表、卡片、开放平台接口读取的字段。留 0 会让"起售价"显示 0 元。
+// 只在商品价还是 0 时回填，不覆盖运营在编辑页显式填过的展示价。
+func (s *productService) syncDisplayPriceFromSpecs(ctx context.Context, productID uint64) {
+	specs, err := s.repo.ListSpecs(ctx, productID)
+	if err != nil || len(specs) == 0 {
+		return
+	}
+	min := 0.0
+	for _, sp := range specs {
+		if sp.Status != model.ProductSpecEnabled || sp.Price <= 0 {
+			continue
+		}
+		if min == 0 || sp.Price < min {
+			min = sp.Price
+		}
+	}
+	if min <= 0 {
+		return
+	}
+	item, err := s.repo.FindByID(ctx, productID)
+	if err != nil || item.Price > 0 {
+		return
+	}
+	item.Price = min
+	_ = s.repo.Update(ctx, item)
 }
 
 // precheckSpecTemplates 建品前预校验模板选择：模板存在、且能落到合法的原子取值与平台参数。
@@ -690,7 +724,10 @@ func (s *productService) generateSpecsFromTemplates(ctx context.Context, product
 				return out, gerr
 			}
 		} else {
-			result, gerr := s.GenerateSpecFromTemplate(ctx, productID, dto.SpecTemplateGenerateRequest{
+			// 无轴档位：前端为它渲染一行规格定价（Values 为空）。把那一行的
+			// 基准价与成本价并进生成请求 —— GenerateSpecFromTemplate 只认单个
+			// Price/CostPrice，不并进来就等于建品页填的价被模板参考价顶掉。
+			genReq := dto.SpecTemplateGenerateRequest{
 				SpecTemplateID: item.sel.SpecTemplateID,
 				SpecCode:       item.sel.SpecCode,
 				Name:           item.sel.Name,
@@ -699,11 +736,41 @@ func (s *productService) generateSpecsFromTemplates(ctx context.Context, product
 				Stock:          item.sel.Stock,
 				SpecValues:     item.sel.SpecValues,
 				PlatformParams: item.sel.PlatformParams,
-			}, operatorID, operatorName)
+			}
+			basePrice, hasBasePrice := baseAxisSpecPrice(item.sel.AxisPrices)
+			if hasBasePrice {
+				if basePrice.Price > 0 {
+					genReq.Price = basePrice.Price
+				}
+				if basePrice.CostPrice > 0 {
+					genReq.CostPrice = basePrice.CostPrice
+				}
+			}
+			// 压缩定价也会出现在无轴档位上（只有一个规格时它就是"套餐本身"）：
+			// 没有单独定价就用套餐基准价，避免被模板参考价顶掉。
+			if !hasBasePrice && item.sel.AxisCharges != nil {
+				if p := item.sel.AxisCharges.BasePrice; p > 0 {
+					genReq.Price = p
+				}
+				if c := item.sel.AxisCharges.BaseCost; c > 0 {
+					genReq.CostPrice = c
+				}
+			}
+			result, gerr := s.GenerateSpecFromTemplate(ctx, productID, genReq, operatorID, operatorName)
 			if gerr != nil {
 				return out, fmt.Errorf("模板 %d 生成规格失败：%w", item.sel.SpecTemplateID, gerr)
 			}
 			out = append(out, result.Spec)
+			// 逐周期价：写该规格自己的矩阵行（无轴档位只有这一个规格）。
+			cyclePrices := basePrice.Cycles
+			if !hasBasePrice && item.sel.AxisCharges != nil {
+				cyclePrices = item.sel.AxisCharges.BaseCycles
+			}
+			if cycles := expandCyclesForPlan(genReq.Price, item.sel.SellableCycles, cyclePrices); len(cycles) > 0 {
+				if werr := s.saveSpecCyclePrices(ctx, productID, result.Spec.ID, cycles, genReq.CostPrice); werr != nil {
+					return out, fmt.Errorf("规格「%s」周期价写入失败：%w", result.Spec.Name, werr)
+				}
+			}
 		}
 		// 收集该档位要开放给客户的选配项（目录元数据 + 勾选取值）。
 		// 轴参数在这里被排除：它的取值已经落在 SKU 上，不该再让客户改。
@@ -1970,7 +2037,7 @@ func translateProductCodeConflict(err error, code string) error {
 		!strings.Contains(err.Error(), "idx_catalog_products_code") {
 		return err
 	}
-	return fmt.Errorf("%w：编码「%s」已被占用，请换一个 SKU 编码", ErrProductCodeExists, code)
+	return fmt.Errorf("%w：编码「%s」已被占用，请换一个商品编码", ErrProductCodeExists, code)
 }
 
 // isUniqueViolationOn 判定 PG 唯一约束冲突且约束名匹配。
