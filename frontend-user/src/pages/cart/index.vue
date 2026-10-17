@@ -94,7 +94,8 @@
         </div>
         <t-radio-group v-model="payMode" variant="default-filled" size="small">
           <t-radio-button value="balance">余额支付</t-radio-button>
-          <t-radio-button value="channel">在线支付</t-radio-button>
+          <!-- 子账号不能走在线支付：付款通道绑定主账号主体，其支付路由直接拒绝子账号 -->
+          <t-radio-button v-if="canUseChannel" value="channel">在线支付</t-radio-button>
         </t-radio-group>
         <span class="settle-bar__note">
           {{
@@ -104,7 +105,13 @@
           }}
         </span>
       </div>
-      <t-button theme="primary" size="large" :loading="submitting" :disabled="!quotesReady" @click="confirmSettle">
+      <t-button
+        theme="primary"
+        size="large"
+        :loading="submitting"
+        :disabled="!quotesReady || !canCreateOrder"
+        @click="confirmSettle"
+      >
         {{ payMode === 'balance' ? '余额支付并开通' : '提交订单' }}（{{ cartStore.items.length }}）
       </t-button>
     </section>
@@ -126,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { CartIcon, ServerIcon } from 'tdesign-icons-vue-next'
@@ -134,11 +141,13 @@ import { CartIcon, ServerIcon } from 'tdesign-icons-vue-next'
 import { createOrder, payOrder, quoteOrder, type QuoteInfo } from '@/api/shop'
 import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 import { useCartStore, type CartItem } from '@/store/modules/cart'
+import { useMemberStore } from '@/store/modules/member'
 
 defineOptions({ name: 'CartPage' })
 
 const router = useRouter()
 const cartStore = useCartStore()
+const memberStore = useMemberStore()
 
 /** 每行的实时算价结果，key 与购物车行 key 一致。 */
 const quotes = ref<Record<string, QuoteInfo>>({})
@@ -146,6 +155,18 @@ const quoteError = ref('')
 const submitting = ref(false)
 /** 支付方式：balance 余额支付（整单即时扣款开通）/ channel 在线支付（逐单去收银台）。 */
 const payMode = ref<'balance' | 'channel'>('balance')
+
+/**
+ * 在线支付对子账号是否可用：后端 /orders/:id/pay 挂了 rejectSub（付款通道绑定
+ * 主账号主体），子账号若选在线支付会生成一张自己永远付不掉的待支付单。
+ * 因此子账号强制走余额（余额在主账号名下，order:create 授权即代主账号扣款）。
+ */
+const canUseChannel = computed(() => !memberStore.isSub)
+watchEffect(() => {
+  if (!canUseChannel.value && payMode.value !== 'balance') payMode.value = 'balance'
+})
+/** 能否下单：后端 POST /uc/orders 要求 order:create。 */
+const canCreateOrder = computed(() => memberStore.has('order:create'))
 
 // ========== 在线支付收银台 ==========
 const cashierVisible = ref(false)

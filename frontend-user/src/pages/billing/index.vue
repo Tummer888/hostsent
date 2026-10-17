@@ -603,7 +603,10 @@ const invoiceForm = reactive<{ invoice_type: string; title: string; tax_no: stri
 })
 
 // 只有已结清且未开票（或曾被驳回）的账单可申请开票。
+// 后端 POST /uc/finance/invoices 带 rejectSub：开票是主账号账户级财务动作，
+// 子账号即便持有 billing:view 也不该看到入口，否则点了必然 403。
 function canApplyInvoice(row: BillInfo): boolean {
+  if (memberStore.isSub) return false
   if (isRechargeBill(row)) return false // 充值账单没有应结金额，票面为 0，不给开票入口
   if (row.status !== 'paid') return false
   return !row.invoice_status || row.invoice_status === 'none' || row.invoice_status === 'rejected'

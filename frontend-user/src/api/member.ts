@@ -85,6 +85,13 @@ export function setMemberPermissions(id: number, permissions: string[]) {
   return request.put<unknown, { data: MemberInfo }>(`/uc/members/${id}/permissions`, { permissions })
 }
 
+/** 重置成员密码：留空则由服务生成一次性密码，仅在响应中返回一次；改密后其登录态失效 */
+export function resetMemberPassword(id: number, password?: string) {
+  return request.put<unknown, { data: { password: string; revoked_sessions: number } }>(`/uc/members/${id}/password`, {
+    password,
+  })
+}
+
 export function deleteMember(id: number) {
   return request.delete<unknown, { data: string }>(`/uc/members/${id}`)
 }

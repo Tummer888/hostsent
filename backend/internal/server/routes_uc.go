@@ -233,20 +233,26 @@ func registerUCRoutes(r *gin.Engine, app *App) {
 		ucMembers.POST("", app.memberHandler.Create)                        // 新建成员
 		ucMembers.PUT("/:id", app.memberHandler.Update)                     // 改备注/状态
 		ucMembers.PUT("/:id/permissions", app.memberHandler.SetPermissions) // 覆盖式设置权限
+		ucMembers.PUT("/:id/password", app.memberHandler.ResetPassword)     // 重置成员密码（一次性密码 / 指定密码）
 		ucMembers.DELETE("/:id", app.memberHandler.Delete)                  // 删除（禁用）成员
 		ucMembers.GET("/:id/logs", app.memberHandler.ListLogs)              // 成员操作日志
 	}
 
 	// 用户中心生命周期与续费（doc60 §7.2）
-	// 聚合视图 /uc/instances/renewals 为固定路径，需先于 /instances/:id 注册
+	// 聚合视图 /uc/instances/renewals 为固定路径，需先于 /instances/:id 注册。
+	//
+	// 权限口径（P4-06 补漏）：续费是「钱从主账号出去」的写操作，与下单同档，
+	// 写路由必须 order:create；只读视图与记录用 order:view。
+	// 此前这组只挂了 userAuth —— 只有 instance:view 的子账号实测能直接调
+	// /instances/:id/renew 扣掉主账号余额并真实续费上游机器（越权支出）。
 	ucLifecycle := r.Group("/api/v1/uc")
 	ucLifecycle.Use(app.userAudit())
 	{
-		ucLifecycle.GET("/instances/renewals", app.userAuth(), app.lifecycleUserHandler.RenewalsView)          // 续费管理聚合视图
-		ucLifecycle.POST("/instances/:id/renew", app.userAuth(), app.lifecycleUserHandler.Renew)               // 手动续费
-		ucLifecycle.PUT("/instances/:id/auto-renew", app.userAuth(), app.lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
-		ucLifecycle.GET("/renewals", app.userAuth(), app.lifecycleUserHandler.Records)                         // 我的续费记录
-		ucLifecycle.GET("/renewals/:id", app.userAuth(), app.lifecycleUserHandler.Detail)                      // 续费记录详情
+		ucLifecycle.GET("/instances/renewals", app.userAuth(), app.userPerm(appauth.PermOrderView), app.lifecycleUserHandler.RenewalsView)            // 续费管理聚合视图
+		ucLifecycle.POST("/instances/:id/renew", app.userAuth(), app.userPerm(appauth.PermOrderCreate), app.lifecycleUserHandler.Renew)               // 手动续费
+		ucLifecycle.PUT("/instances/:id/auto-renew", app.userAuth(), app.userPerm(appauth.PermOrderCreate), app.lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
+		ucLifecycle.GET("/renewals", app.userAuth(), app.userPerm(appauth.PermOrderView), app.lifecycleUserHandler.Records)                           // 我的续费记录
+		ucLifecycle.GET("/renewals/:id", app.userAuth(), app.userPerm(appauth.PermOrderView), app.lifecycleUserHandler.Detail)                        // 续费记录详情
 	}
 
 	// 用户中心消息中心（doc70 §7.2）
