@@ -1,6 +1,16 @@
 import type { RouteRecordRaw } from 'vue-router'
 import { createRouter, createWebHistory } from 'vue-router'
 
+// 错误页必须静态引入，不能走懒加载。
+//
+// chunk 失效时「所有动态 import 都会失败」—— 错误页自己也是动态 import 的话，
+// 跳过去只会再抛一次同样的错，形成 onError → replace → onError 的死循环
+// （实测能刷出几十条 pageerror 而页面始终打不开）。静态引入让它们进首屏主包，
+// 与故障的 chunk 不在同一条加载路径上。
+import ChunkLoadErrorPage from '@/pages/error/chunk.vue'
+import NotFoundPage from '@/pages/error/404.vue'
+import ServerErrorPage from '@/pages/error/500.vue'
+
 const routes: Array<RouteRecordRaw> = [
   {
     path: '/',
@@ -1296,6 +1306,51 @@ const routes: Array<RouteRecordRaw> = [
       },
     ],
   },
+  // 未知路径兜底（doc34 F-19：此前无 catch-all，未匹配路径渲染为纯白屏）。
+  //
+  // 必须自己也挂 layouts/index.vue：管理端是按一级域分别挂载 layout 的结构
+  // （/dashboard、/users 各自 component: layouts/index.vue），根层没有包裹路由。
+  // 若把 catch-all 直接放在顶层，错误页会渲染在骨架之外，用户既看不到侧边栏
+  // 也看不到返回按钮，等于只把白屏换成了孤岛页面。
+  {
+    path: '/:pathMatch(.*)*',
+    component: () => import('@/layouts/index.vue'),
+    meta: { title: '页面不存在' },
+    children: [
+      {
+        path: '',
+        name: 'NotFound',
+        component: NotFoundPage,
+      },
+    ],
+  },
+  // 资源加载失败（发版后旧 chunk 失效）的落点，由 permission.ts 的 router.onError
+  // 判定后跳转；同样挂在 layout 内，保证导航骨架可用。
+  {
+    path: '/error/chunk',
+    component: () => import('@/layouts/index.vue'),
+    meta: { title: '检测到新版本' },
+    children: [
+      {
+        path: '',
+        name: 'ChunkLoadError',
+        component: ChunkLoadErrorPage,
+      },
+    ],
+  },
+  // 渲染异常兜底，由 main.ts 的 app.config.errorHandler 跳转。
+  {
+    path: '/error/500',
+    component: () => import('@/layouts/index.vue'),
+    meta: { title: '页面加载失败' },
+    children: [
+      {
+        path: '',
+        name: 'ServerError',
+        component: ServerErrorPage,
+      },
+    ],
+  },
 ]
 
 const router = createRouter({
@@ -1304,6 +1359,33 @@ const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+// 懒加载 chunk 失败（发版后旧哈希失效）单独识别。
+// 这类错误发生在「守卫已放行、开始下载目标组件」之后，beforeEach 插不上手，
+// 只能在这里捕获；不处理的话 router 会停在半路，页面保持白屏。
+let chunkErrorRedirected = false
+router.onError((error) => {
+  const message = String((error as Error)?.message || '')
+  const isChunkError =
+    /Failed to fetch dynamically imported module/i.test(message) ||
+    /Importing a module script failed/i.test(message) ||
+    /error loading dynamically imported module/i.test(message)
+  if (!isChunkError) return
+  // 已经在提示页就不再重复跳转，避免刷新前反复 push 同一路由。
+  if (router.currentRoute.value.name === 'ChunkLoadError') return
+
+  // 只重定向一次。若错误页自身的依赖也加载失败（整站资源都不可用），
+  // 再 replace 会再次触发 onError，形成无限重试 —— 保留当前画面比空转更有用。
+  if (chunkErrorRedirected) return
+  chunkErrorRedirected = true
+
+  void router.replace({ name: 'ChunkLoadError', query: { from: router.currentRoute.value.fullPath } }).finally(() => {
+    // 稍后解锁：用户手动导航到别的页面时还能再被接住一次。
+    window.setTimeout(() => {
+      chunkErrorRedirected = false
+    }, 5000)
+  })
 })
 
 export default router

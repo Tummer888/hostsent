@@ -85,6 +85,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3002,
+    // 与 frontend-admin 一致：允许通过域名访问 dev server（IP 直访本就不受限）
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8080',

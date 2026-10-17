@@ -19,4 +19,15 @@ app.use(pinia)
 app.use(router)
 app.directive('permission', permissionDirective)
 setupPermission(app)
+
+// 渲染期异常兜底：没有它，组件 render/setup 抛错时 Vue 只会往控制台打一条日志，
+// 用户看到的是停在半截的页面（或白屏），既不知道发生了什么也没有出口。
+// 这里把异常导到 /error/500，保留骨架与「重新加载」的能力。
+app.config.errorHandler = (error, _instance, info) => {
+  console.error('[admin] 未捕获的渲染异常:', error, info)
+  const current = router.currentRoute.value
+  if (current.name === 'ServerError') return
+  void router.replace({ name: 'ServerError', query: { from: current.fullPath } })
+}
+
 app.mount('#app')

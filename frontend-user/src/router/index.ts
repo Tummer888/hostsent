@@ -1,5 +1,14 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+// 错误页必须静态引入，不能走懒加载。
+//
+// chunk 失效时「所有动态 import 都会失败」—— 错误页自己也是动态 import 的话，
+// 跳过去只会再抛一次同样的错，形成 onError → replace → onError 的死循环。
+// 静态引入让它们进首屏主包，与故障的 chunk 不在同一条加载路径上。
+import ChunkLoadErrorPage from '@/pages/error/chunk.vue'
+import NotFoundPage from '@/pages/error/404.vue'
+import ServerErrorPage from '@/pages/error/500.vue'
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -81,7 +90,9 @@ const routes: RouteRecordRaw[] = [
         path: 'cloud/renewals',
         name: 'UserRenewals',
         component: () => import('@/pages/cloud/renewals/index.vue'),
-        meta: { title: '续费管理', icon: 'refresh', permission: 'order:create' },
+        // 进入页面只需 order:view（后端 GET /instances/renewals 同口径），
+        // 页内的「立即续费」「自动续费」再单独要 order:create。
+        meta: { title: '续费管理', icon: 'refresh', permission: 'order:view' },
       },
       {
         path: 'order',
@@ -135,13 +146,13 @@ const routes: RouteRecordRaw[] = [
         path: 'points',
         name: 'MyPoints',
         component: () => import('@/pages/points/index.vue'),
-        meta: { title: '我的积分', icon: 'gift' },
+        meta: { title: '我的积分', icon: 'gift', permission: 'billing:view' },
       },
       {
         path: 'points/transactions',
         name: 'MyPointTransactions',
         component: () => import('@/pages/points/transactions.vue'),
-        meta: { title: '积分明细', icon: 'money' },
+        meta: { title: '积分明细', icon: 'money', permission: 'billing:view' },
       },
       {
         path: 'support',
@@ -171,7 +182,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'referral',
         redirect: '/referral/overview',
-        meta: { title: '推广邀请', icon: 'share' },
+        // 推广数据是主账号资产（含返现与提现），子账号一律不可见；
+        // 与 OWNER_ONLY_MENU_PATHS 是同一批路径，改一处要同时改两处。
+        meta: { title: '推广邀请', icon: 'share', ownerOnly: true },
         children: [
           {
             path: 'overview',
@@ -235,13 +248,33 @@ const routes: RouteRecordRaw[] = [
           },
         ],
       },
+      // 错误页挂在 layout 内：保留侧边栏与顶栏，用户出错后仍有导航能力。
+      {
+        path: 'error/404',
+        name: 'NotFound',
+        component: NotFoundPage,
+        meta: { title: '页面不存在', hidden: true },
+      },
+      {
+        path: 'error/500',
+        name: 'ServerError',
+        component: ServerErrorPage,
+        meta: { title: '页面加载失败', hidden: true },
+      },
+      {
+        path: 'error/chunk',
+        name: 'ChunkLoadError',
+        component: ChunkLoadErrorPage,
+        meta: { title: '检测到新版本', hidden: true },
+      },
     ],
   },
   {
+    // 未知路径兜底：保留 layout，直接重定向到 /error/404。
+    // 不用「catch-all 自己渲染 404 页」的写法，是因为 layout 的 children 里
+    // 已经有一个具名 NotFound，同名路由会让 vue-router 报警并产生歧义。
     path: '/:pathMatch(.*)*',
-    name: 'NotFound',
-    component: () => import('@/pages/error/404.vue'),
-    meta: { title: '页面不存在' },
+    redirect: '/error/404',
   },
 ]
 
@@ -251,6 +284,31 @@ const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+// 懒加载 chunk 失败（发版后旧哈希失效）单独识别。
+// 这类错误发生在「守卫已放行、开始下载目标组件」之后，beforeEach 插不上手，
+// 只能在这里捕获；不处理的话 router 会停在半路，页面保持白屏。
+let chunkErrorRedirected = false
+router.onError((error) => {
+  const message = String((error as Error)?.message || '')
+  const isChunkError =
+    /Failed to fetch dynamically imported module/i.test(message) ||
+    /Importing a module script failed/i.test(message) ||
+    /error loading dynamically imported module/i.test(message)
+  if (!isChunkError) return
+  if (router.currentRoute.value.name === 'ChunkLoadError') return
+
+  // 只重定向一次。若错误页自身的依赖也加载失败（整站资源都不可用），
+  // 再 replace 会再次触发 onError，形成无限重试 —— 保留当前画面比空转更有用。
+  if (chunkErrorRedirected) return
+  chunkErrorRedirected = true
+
+  void router.replace({ name: 'ChunkLoadError', query: { from: router.currentRoute.value.fullPath } }).finally(() => {
+    window.setTimeout(() => {
+      chunkErrorRedirected = false
+    }, 5000)
+  })
 })
 
 export default router

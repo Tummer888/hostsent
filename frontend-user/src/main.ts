@@ -31,4 +31,14 @@ app.use(router)
 setupTDesign(app)
 app.directive('permission', permission)
 setupPermission(app)
+
+// 渲染期异常兜底：没有它，组件 render/setup 抛错时只会在控制台留一条日志，
+// 用户看到的是停在半截的页面（或白屏），既不知道发生了什么也没有出口。
+app.config.errorHandler = (error, _instance, info) => {
+  console.error('[user] 未捕获的渲染异常:', error, info)
+  const current = router.currentRoute.value
+  if (current.name === 'ServerError') return
+  void router.replace({ name: 'ServerError', query: { from: current.fullPath } })
+}
+
 app.mount('#app')

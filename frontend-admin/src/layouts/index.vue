@@ -141,29 +141,6 @@
               <ChevronLeftIcon size="18" />
             </button>
           </t-tooltip>
-
-          <!-- 面包屑：首页 / 一级域 / 二级分组 / 当前页 -->
-          <nav class="nav-breadcrumb" aria-label="面包屑">
-            <template v-for="(crumb, idx) in breadcrumb.items" :key="crumb.title + idx">
-              <span v-if="idx > 0" class="nav-breadcrumb__sep" aria-hidden="true">/</span>
-              <a
-                v-if="crumb.path && idx < breadcrumb.items.length - 1"
-                class="nav-breadcrumb__item nav-breadcrumb__item--link"
-                :href="crumb.path"
-                @click.prevent="switchTo(crumb.path)"
-              >
-                {{ crumb.title }}
-              </a>
-              <span
-                v-else
-                class="nav-breadcrumb__item"
-                :class="{ 'nav-breadcrumb__item--current': idx === breadcrumb.items.length - 1 }"
-                :aria-current="idx === breadcrumb.items.length - 1 ? 'page' : undefined"
-              >
-                {{ crumb.title }}
-              </span>
-            </template>
-          </nav>
         </div>
         <div class="top-header__right">
           <!-- 导航搜索框 -->
@@ -291,6 +268,31 @@
       </div>
       <t-content class="content-area">
         <div class="content-inner">
+          <!-- 面包屑：一级域 / 二级分组 / 当前页（页面主体左上角）。
+               放在内容区顶部而不是顶栏：它是「当前页在导航树里的位置」，
+               与页面内容同属一块，落在内容卡内与标题/表格形成从属关系；
+               顶栏留给全局操作（返回、搜索、主题、通知、账号）。 -->
+          <nav v-if="breadcrumb.items.length > 1" class="page-breadcrumb" aria-label="面包屑">
+            <template v-for="(crumb, idx) in breadcrumb.items" :key="crumb.title + idx">
+              <span v-if="idx > 0" class="page-breadcrumb__sep" aria-hidden="true">/</span>
+              <a
+                v-if="crumb.path && idx < breadcrumb.items.length - 1"
+                class="page-breadcrumb__item page-breadcrumb__item--link"
+                :href="crumb.path"
+                @click.prevent="switchTo(crumb.path)"
+              >
+                {{ crumb.title }}
+              </a>
+              <span
+                v-else
+                class="page-breadcrumb__item"
+                :class="{ 'page-breadcrumb__item--current': idx === breadcrumb.items.length - 1 }"
+                :aria-current="idx === breadcrumb.items.length - 1 ? 'page' : undefined"
+              >
+                {{ crumb.title }}
+              </span>
+            </template>
+          </nav>
           <router-view v-slot="{ Component: RouteComponent, route: currentRoute }">
             <transition name="fade" mode="out-in">
               <!-- 必须用单元素包裹：路由页面若渲染多根节点（如列表 + 弹窗共存），
@@ -659,13 +661,19 @@ const breadcrumb = computed(() => resolveBreadcrumb(route, sidebarItems.value))
 // 用 history.back() 而不是「跳到某个固定页面」：返回目标由用户来路决定，
 // 「用户列表 → 用户详情」「创建订单 → 订单详情」都能回到真正来的那页。
 //
-// canGoBack 只看 history.state.position（vue-router 在 createWebHistory 下维护的
-// 会话内位置）：position > 0 说明本会话内确实后退过一步。不从 history.length 判断 ——
-// 新开标签页直接进详情页时 length 也可能 > 1（浏览器保留了上一站），
-// 那时 back() 会把用户送出本系统，属于「乱跳」。
+// canGoBack 判定用 history.state.back（vue-router 每次导航写入的「上一站路径」），
+// 而不是 history.state.position：position 的初值取自 window.history.length，
+// 新开标签页直接打开详情页时它就是 1，看起来「可以后退」，实际一按就退出了本系统
+// （实测确认）。back 为 null 只会出现在两种情形 —— 会话的第一次导航，
+// 或整页刷新后由 vue-router 重建的初始状态；两者都不该由站内返回按钮接管。
 const canGoBack = computed(() => {
-  const position = (window.history.state as { position?: number } | null)?.position
-  return typeof position === 'number' && position > 0
+  // 读 route.fullPath 建立响应式依赖：history.state 不是响应式的，
+  // 不引用任何响应式数据的话这个 computed 会永久缓存第一次的结果。
+  // vue-router 在导航时先写 history.state、再更新 currentRoute，
+  // 因此这里读到的 back 已是本次导航之后的值。
+  void route.fullPath
+  const back = (window.history.state as { back?: string | null } | null)?.back
+  return typeof back === 'string' && back.length > 0
 })
 
 function goBack() {
@@ -1441,39 +1449,40 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-/* ===== 面包屑 ===== */
-.nav-breadcrumb {
+/* ===== 面包屑（页面主体左上角） ===== */
+.page-breadcrumb {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  min-width: 0;
+  margin-bottom: 12px;
   font-size: 12.5px;
   color: var(--color-muted-foreground);
 }
 
-.nav-breadcrumb__item {
+.page-breadcrumb__item {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.nav-breadcrumb__item--link {
+.page-breadcrumb__item--link {
   color: var(--color-muted-foreground);
   text-decoration: none;
   cursor: pointer;
   transition: color 0.2s ease;
 }
 
-.nav-breadcrumb__item--link:hover {
+.page-breadcrumb__item--link:hover {
   color: var(--color-primary);
 }
 
-.nav-breadcrumb__sep {
+.page-breadcrumb__sep {
   color: var(--color-border);
   flex-shrink: 0;
 }
 
-.nav-breadcrumb__item--current {
+.page-breadcrumb__item--current {
   color: var(--color-foreground);
   font-weight: 600;
 }
@@ -1610,6 +1619,9 @@ onMounted(() => {
   .mobile-menu-btn {
     display: inline-flex;
   }
+
+  /* 面包屑移到页面主体后不再需要隐藏：顶栏只剩「菜单 + 返回」两个按钮，
+     内容区首行空间充足，窄屏下会自动换行（flex-wrap）。 */
 
   .sidebar-wrapper {
     position: fixed;
@@ -2031,15 +2043,15 @@ onMounted(() => {
   color: #4b5563;
 }
 
-.dark .nav-breadcrumb__item--link:hover {
+.dark .page-breadcrumb__item--link:hover {
   color: var(--td-brand-color-4);
 }
 
-.dark .nav-breadcrumb__item--current {
+.dark .page-breadcrumb__item--current {
   color: #e5e7eb;
 }
 
-.dark .nav-breadcrumb__sep {
+.dark .page-breadcrumb__sep {
   color: #333333;
 }
 
