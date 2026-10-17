@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
@@ -49,6 +50,23 @@ type UserService interface {
 	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) (*RechargeResult, error)
 	// ListMembers 查询某主账号名下的成员（子账号）及权限（P4-10）
 	ListMembers(ctx context.Context, ownerID uint64) (*dto.SubAccountMemberListResponse, error)
+	// —— 管理端子账号管理（P4-10 管理面补全；实现复用客户侧 memberService）——
+	// CreateSubAccount 新建子账号，返回一次响应含一次性密码。
+	CreateSubAccount(ctx context.Context, ownerID uint64, req dto.AdminSubAccountCreateRequest) (*dto.CreateSubAccountResult, error)
+	// UpdateSubAccount 改子账号备注/状态（禁用时连带撤销其会话）。
+	UpdateSubAccount(ctx context.Context, ownerID, memberID uint64, req dto.AdminSubAccountUpdateRequest) (*dto.SubAccountMemberInfo, error)
+	// SetSubAccountPermissions 覆盖式设置子账号权限。
+	SetSubAccountPermissions(ctx context.Context, ownerID, memberID uint64, codes []string) (*dto.SubAccountMemberInfo, error)
+	// ResetSubAccountPassword 重置子账号密码（留空则生成一次性密码），并撤销其会话。
+	ResetSubAccountPassword(ctx context.Context, ownerID, memberID uint64, password string) (*dto.AdminSubAccountResetPasswordResponse, error)
+	// DisableSubAccount 禁用子账号并撤销其会话。
+	DisableSubAccount(ctx context.Context, ownerID, memberID uint64) error
+	// ListSubAccountLogs 子账号操作日志。
+	ListSubAccountLogs(ctx context.Context, ownerID, memberID uint64, page, pageSize int) (*dto.SubAccountLogListResponse, error)
+	// SubAccountPermissionOptions 可选客户侧权限项（含中文标签）。
+	SubAccountPermissionOptions() []dto.SubAccountPermissionOption
+	// SetSubAccountManager 注入子账号管理能力（可选，装配层调用）。
+	SetSubAccountManager(manager SubAccountManager)
 	// SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
 	SetDefaultGroupProvider(provider DefaultGroupProvider)
 	// SetLoginRecorder 注入代登录审计写入能力（可选，装配层调用）。
@@ -63,6 +81,23 @@ type UserService interface {
 	SetAgentLevelValidator(validator AgentLevelValidator)
 	// SetLogger 注入日志器（可选，装配层调用）。
 	SetLogger(logger *zap.Logger)
+	// SetSessionRevoker 注入「按用户撤销全部有效会话」能力（可选，装配层调用）。
+	SetSessionRevoker(revoker SessionRevoker)
+	// SetSessionInvalidator 注入会话校验缓存失效能力（可选，装配层调用）。
+	SetSessionInvalidator(invalidator SessionInvalidator)
+	// HasSessionRevoker 装配自检：会话撤销能力是否已接线。
+	HasSessionRevoker() bool
+}
+
+// SessionRevoker 按用户撤销其全部有效会话，返回被撤销的 session_id（供缓存失效）。
+// 由 uc/auth 的 userRepository 实现（RevokeSessions）。
+type SessionRevoker interface {
+	RevokeSessions(ctx context.Context, id uint64, reason string) ([]string, error)
+}
+
+// SessionInvalidator 让会话有效性缓存立即失效（由 pkg/sessionguard.Guard 实现）。
+type SessionInvalidator interface {
+	Invalidate(ctx context.Context, sessionIDs ...string)
 }
 
 // RoleScopeValidator 校验一组角色 ID 是否全部属于指定作用域（由 roleService 实现）。
@@ -90,6 +125,94 @@ type RechargeResult struct {
 	RechargeNo string
 	// TxNo 资金流水号（扣减调账时有值）。
 	TxNo string
+}
+
+// SubAccountManager 客户侧子账号（成员）管理能力（由 uc/member 服务实现，装配层注入）。
+//
+// 管理端不重复实现一套成员业务：权限枚举过滤、等级配额、唯一性校验、改密撤会话
+// 这些规则必须与客户侧完全一致，各写一份必然漂移（客户侧改了口径、管理端没跟上）。
+// 因此这里只声明端口，实现复用同一个 memberService —— 差别仅在归属判定：
+// 客户侧以登录主账号为归属，管理端以路径上的主账号 ID 为归属（见 AdminSubAccountManager）。
+type SubAccountManager interface {
+	// ListMembers 某主账号名下的成员及各自权限。
+	ListMembers(ctx context.Context, ownerID uint64) (*SubAccountMemberList, error)
+	// CreateMember 新建成员；返回一次性密码（未指定时生成）。
+	CreateMember(ctx context.Context, ownerID uint64, req SubAccountCreateInput) (*SubAccountMember, string, error)
+	// UpdateMember 改备注/状态。
+	UpdateMember(ctx context.Context, ownerID, memberID uint64, req SubAccountUpdateInput) (*SubAccountMember, error)
+	// SetMemberPermissions 覆盖式设置权限。
+	SetMemberPermissions(ctx context.Context, ownerID, memberID uint64, codes []string) (*SubAccountMember, error)
+	// ResetMemberPassword 重置密码，返回一次性密码与连带撤销的会话数。
+	ResetMemberPassword(ctx context.Context, ownerID, memberID uint64, password string) (string, int, error)
+	// DisableMember 禁用成员并撤销其会话。
+	DisableMember(ctx context.Context, ownerID, memberID uint64) error
+	// MemberLogs 成员操作日志。
+	MemberLogs(ctx context.Context, ownerID, memberID uint64, page, pageSize int) (*SubAccountLogPage, error)
+	// PermissionOptions 可选权限项（含中文标签），供前端渲染开关。
+	PermissionOptions() []SubAccountPermissionOption
+}
+
+// SubAccountCreateInput 新建成员的入参（与客户侧同字段，避免管理端另立口径）。
+type SubAccountCreateInput struct {
+	Username    string
+	Email       string
+	Phone       string
+	Password    string
+	Remark      string
+	Permissions []string
+}
+
+// SubAccountUpdateInput 修改成员的入参。
+type SubAccountUpdateInput struct {
+	Remark string
+	Status string
+}
+
+// SubAccountMember 成员信息。
+type SubAccountMember struct {
+	ID          uint64
+	Username    string
+	Name        string
+	Email       string
+	Phone       string
+	Remark      string
+	Status      string
+	Permissions []string
+	CreatedAt   time.Time
+	LastLoginAt *time.Time
+}
+
+// SubAccountMemberList 成员列表（含配额与可选权限，供前端渲染）。
+type SubAccountMemberList struct {
+	Members        []SubAccountMember
+	MaxSubAccounts int
+}
+
+// SubAccountPermissionOption 可选权限项。
+type SubAccountPermissionOption struct {
+	Code  string
+	Label string
+}
+
+// SubAccountLogItem 成员操作日志项。
+// CreatedAt 用已格式化的字符串：客户侧服务返回的就是展示串，
+// 这里再转一次 time.Time 只为了在 DTO 层格式化回同样的字符串，属于无谓往返。
+type SubAccountLogItem struct {
+	ID        uint64
+	ActorID   uint64
+	ActorName string
+	Module    string
+	Action    string
+	Target    string
+	Detail    string
+	IP        string
+	CreatedAt string
+}
+
+// SubAccountLogPage 成员操作日志分页。
+type SubAccountLogPage struct {
+	Items []SubAccountLogItem
+	Total int64
 }
 
 // DefaultGroupProvider 提供默认用户组 ID（由用户组服务实现，装配层注入）；
@@ -137,16 +260,19 @@ type ImpersonateRequest struct {
 }
 
 type userService struct {
-	repo         repository.UserRepository
-	jwtIssuer    *pkgauth.JWTIssuer
-	recharge     Recharger
-	defaultGroup DefaultGroupProvider
-	loginRecord  LoginRecorder
-	roleScopes   RoleScopeValidator
-	levels       LevelAssigner
-	defaultRole  DefaultUserRoleProvider
-	agentLevels  AgentLevelValidator
-	logger       *zap.Logger
+	repo               repository.UserRepository
+	jwtIssuer          *pkgauth.JWTIssuer
+	recharge           Recharger
+	defaultGroup       DefaultGroupProvider
+	loginRecord        LoginRecorder
+	roleScopes         RoleScopeValidator
+	levels             LevelAssigner
+	defaultRole        DefaultUserRoleProvider
+	agentLevels        AgentLevelValidator
+	logger             *zap.Logger
+	sessionRevoker     SessionRevoker
+	subAccounts        SubAccountManager
+	sessionInvalidator SessionInvalidator
 }
 
 func NewUserService(repo repository.UserRepository, jwtIssuer *pkgauth.JWTIssuer, recharge Recharger) UserService {
@@ -236,6 +362,154 @@ func (s *userService) SetLoginRecorder(recorder LoginRecorder) {
 // SetLogger 注入日志器（可选，装配层调用）；未注入时审计失败只静默忽略。
 func (s *userService) SetLogger(logger *zap.Logger) {
 	s.logger = logger
+}
+
+// SetSessionRevoker 注入「按用户撤销全部有效会话」能力（可选，装配层调用）。
+func (s *userService) SetSessionRevoker(revoker SessionRevoker) {
+	s.sessionRevoker = revoker
+}
+
+// SetSessionInvalidator 注入会话校验缓存失效能力（可选，装配层调用）。
+func (s *userService) SetSessionInvalidator(invalidator SessionInvalidator) {
+	s.sessionInvalidator = invalidator
+}
+
+// HasSessionRevoker 装配自检：会话撤销能力是否已接线。
+// 漏接线不会编译失败，只会让「禁用用户」不即时踢掉登录态（实测踩过）。
+func (s *userService) HasSessionRevoker() bool {
+	return s.sessionRevoker != nil
+}
+
+// SetSubAccountManager 注入子账号管理能力（可选，装配层调用）。
+func (s *userService) SetSubAccountManager(manager SubAccountManager) {
+	s.subAccounts = manager
+}
+
+// CreateSubAccount 管理端新建子账号。
+//
+// 复用客户侧 memberService：权限枚举过滤、等级配额、唯一性校验都在那一处实现，
+// 管理端只做「归属 = 路径上的主账号」这一次改写。
+func (s *userService) CreateSubAccount(ctx context.Context, ownerID uint64, req dto.AdminSubAccountCreateRequest) (*dto.CreateSubAccountResult, error) {
+	if s.subAccounts == nil {
+		return nil, ErrSubAccountUnavailable
+	}
+	member, password, err := s.subAccounts.CreateMember(ctx, ownerID, SubAccountCreateInput{
+		Username:    req.Username,
+		Email:       req.Email,
+		Phone:       req.Phone,
+		Password:    req.Password,
+		Remark:      req.Remark,
+		Permissions: req.Permissions,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &dto.CreateSubAccountResult{Member: toSubAccountMemberInfo(*member), Password: password}, nil
+}
+
+// UpdateSubAccount 管理端改子账号备注/状态。
+func (s *userService) UpdateSubAccount(ctx context.Context, ownerID, memberID uint64, req dto.AdminSubAccountUpdateRequest) (*dto.SubAccountMemberInfo, error) {
+	if s.subAccounts == nil {
+		return nil, ErrSubAccountUnavailable
+	}
+	member, err := s.subAccounts.UpdateMember(ctx, ownerID, memberID, SubAccountUpdateInput{Remark: req.Remark, Status: req.Status})
+	if err != nil {
+		return nil, err
+	}
+	info := toSubAccountMemberInfo(*member)
+	return &info, nil
+}
+
+// SetSubAccountPermissions 管理端覆盖式设置子账号权限。
+func (s *userService) SetSubAccountPermissions(ctx context.Context, ownerID, memberID uint64, codes []string) (*dto.SubAccountMemberInfo, error) {
+	if s.subAccounts == nil {
+		return nil, ErrSubAccountUnavailable
+	}
+	member, err := s.subAccounts.SetMemberPermissions(ctx, ownerID, memberID, codes)
+	if err != nil {
+		return nil, err
+	}
+	info := toSubAccountMemberInfo(*member)
+	return &info, nil
+}
+
+// ResetSubAccountPassword 管理端重置子账号密码（留空生成一次性密码）并撤销其会话。
+func (s *userService) ResetSubAccountPassword(ctx context.Context, ownerID, memberID uint64, password string) (*dto.AdminSubAccountResetPasswordResponse, error) {
+	if s.subAccounts == nil {
+		return nil, ErrSubAccountUnavailable
+	}
+	generated, revoked, err := s.subAccounts.ResetMemberPassword(ctx, ownerID, memberID, password)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.AdminSubAccountResetPasswordResponse{Password: generated, RevokedSessions: revoked}, nil
+}
+
+// DisableSubAccount 管理端禁用子账号（并撤销其会话）。
+func (s *userService) DisableSubAccount(ctx context.Context, ownerID, memberID uint64) error {
+	if s.subAccounts == nil {
+		return ErrSubAccountUnavailable
+	}
+	return s.subAccounts.DisableMember(ctx, ownerID, memberID)
+}
+
+// ListSubAccountLogs 管理端查看子账号操作日志。
+func (s *userService) ListSubAccountLogs(ctx context.Context, ownerID, memberID uint64, page, pageSize int) (*dto.SubAccountLogListResponse, error) {
+	if s.subAccounts == nil {
+		return nil, ErrSubAccountUnavailable
+	}
+	pageData, err := s.subAccounts.MemberLogs(ctx, ownerID, memberID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dto.SubAccountLogInfo, 0, len(pageData.Items))
+	for _, it := range pageData.Items {
+		items = append(items, dto.SubAccountLogInfo{
+			ID:        it.ID,
+			ActorID:   it.ActorID,
+			ActorName: it.ActorName,
+			Module:    it.Module,
+			Action:    it.Action,
+			Target:    it.Target,
+			Detail:    it.Detail,
+			IP:        it.IP,
+			CreatedAt: it.CreatedAt,
+		})
+	}
+	return &dto.SubAccountLogListResponse{Items: items, Total: pageData.Total}, nil
+}
+
+// SubAccountPermissionOptions 可选客户侧权限项（前端渲染开关用）。
+func (s *userService) SubAccountPermissionOptions() []dto.SubAccountPermissionOption {
+	if s.subAccounts == nil {
+		return []dto.SubAccountPermissionOption{}
+	}
+	opts := s.subAccounts.PermissionOptions()
+	out := make([]dto.SubAccountPermissionOption, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, dto.SubAccountPermissionOption{Code: o.Code, Label: o.Label})
+	}
+	return out
+}
+
+// toSubAccountMemberInfo 端口结构 → 管理端 DTO。
+func toSubAccountMemberInfo(m SubAccountMember) dto.SubAccountMemberInfo {
+	perms := m.Permissions
+	if perms == nil {
+		perms = []string{}
+	}
+	return dto.SubAccountMemberInfo{
+		ID:          m.ID,
+		Username:    m.Username,
+		Name:        m.Name,
+		Email:       m.Email,
+		Phone:       m.Phone,
+		Remark:      m.Remark,
+		Status:      m.Status,
+		Permissions: perms,
+		CreatedAt:   m.CreatedAt,
+		LastLoginAt: m.LastLoginAt,
+	}
 }
 
 // SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
@@ -498,6 +772,12 @@ func rejectIfDeleted(user *model.User) error {
 	return nil
 }
 
+// UpdateStatus 调整用户状态，并在「禁用」时级联处置其子账号与登录态。
+//
+// 为什么要级联：主账号是客户主体，子账号从属其下（设计 §4.6.2）。此前禁用主账号
+// 只改这一行 status，子账号的令牌与会话毫无变化 —— 实测确认被禁用主账号的子账号
+// 仍能正常调接口、操作主账号资源。会话校验侧已补账号状态判定（pkg/sessionguard），
+// 这里再做一次显式级联撤销，让「停用」即时生效而不必等校验缓存过期。
 func (s *userService) UpdateStatus(ctx context.Context, id uint64, status string) error {
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -509,7 +789,51 @@ func (s *userService) UpdateStatus(ctx context.Context, id uint64, status string
 	if !model.IsValidStatus(status) {
 		return fmt.Errorf("非法状态：%s", status)
 	}
-	return s.repo.UpdateStatus(ctx, id, status)
+	if err := s.repo.UpdateStatus(ctx, id, status); err != nil {
+		return err
+	}
+	if status == "active" {
+		return nil
+	}
+	// 非 active（禁用/暂停）→ 同步子账号并撤销双方的会话，避免旧令牌继续可用。
+	subIDs, err := s.repo.CascadeStatusToSubAccounts(ctx, id, status)
+	if err != nil {
+		// 级联失败不回滚主账号状态：主账号已停用是既定事实，
+		// 而 sessionguard 的账号状态判定仍会兜住子账号的每一个请求。
+		s.log().Warn("cascade sub-account status failed",
+			zap.Uint64("owner_id", id), zap.Error(err))
+	}
+	s.revokeSessionsOf(ctx, append(subIDs, id), "主账号被禁用，登录态一并失效")
+	return nil
+}
+
+// revokeSessionsOf 撤销一批用户（客户域）的全部有效会话并让校验缓存立即失效。
+//
+// 失败只告警：撤销落库本身若失败，sessionguard 的账号状态判定仍会拒绝这些令牌；
+// 这里是「尽快生效」而非唯一防线，不该让禁用用户这个动作整体失败。
+func (s *userService) revokeSessionsOf(ctx context.Context, userIDs []uint64, reason string) {
+	if s.sessionRevoker == nil {
+		return
+	}
+	for _, uid := range userIDs {
+		sessionIDs, err := s.sessionRevoker.RevokeSessions(ctx, uid, reason)
+		if err != nil {
+			s.log().Warn("revoke sessions failed",
+				zap.Uint64("user_id", uid), zap.Error(err))
+			continue
+		}
+		if s.sessionInvalidator != nil && len(sessionIDs) > 0 {
+			s.sessionInvalidator.Invalidate(ctx, sessionIDs...)
+		}
+	}
+}
+
+// log 返回日志器，未注入时为 no-op，避免各处判空。
+func (s *userService) log() *zap.Logger {
+	if s.logger == nil {
+		return zap.NewNop()
+	}
+	return s.logger
 }
 
 func (s *userService) ResetPassword(ctx context.Context, id uint64, password string) error {
@@ -577,6 +901,7 @@ func (s *userService) GetStats(ctx context.Context) (*dto.UserStatsResponse, err
 		TotalBalance:    stats.TotalBalance,
 		PurchasedCount:  stats.PurchasedCount,
 		Deleted:         stats.Deleted,
+		SubAccountTotal: stats.SubAccountTotal,
 	}, nil
 }
 
@@ -786,9 +1111,26 @@ func (s *userService) ActivityOverview(ctx context.Context, limit, windowHours i
 // 金额为正表示充值（会生成充值单并归集当期账单），为负表示扣减（人工调账）。
 // 详情页的「调整余额」需要双向能力，原先固定 direction=1，扣减只能靠负数的
 // 语义歧义绕过去。
+//
+// 子账号一律拒绝：所有消费路径（下单/续费）都按 EffectiveUserID 取主账号，
+// 子账号 wallet 里的余额是「孤儿钱」——既花不掉也无法提现，只会让财务
+// 对账多出一笔无处归集的账。要充值请对主账号操作。
 func (s *userService) Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) (*RechargeResult, error) {
 	if amount == 0 {
 		return nil, ErrInvalidAdjustAmount
+	}
+	user, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		// 用户不存在时把 GORM 的 "record not found" 翻成领域错误：否则 handler
+		// 只能落到 default 分支回 500「服务器内部错误」，运营看不出是自己
+		// 传了一个已经不存在的用户 ID。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	if user.IsSubAccount {
+		return nil, ErrRechargeSubAccountDenied
 	}
 	if s.recharge == nil {
 		return nil, errors.New("充值能力未配置")

@@ -16,4 +16,6 @@ var (
 	ErrPhoneTaken = errors.New("手机号已被使用")
 	// ErrInvalidStatus 非法的状态值。
 	ErrInvalidStatus = errors.New("非法的成员状态")
+	// ErrPasswordTooShort 指定的密码过短（留空则由服务生成一次性密码）。
+	ErrPasswordTooShort = errors.New("密码长度不能少于 6 位")
 )

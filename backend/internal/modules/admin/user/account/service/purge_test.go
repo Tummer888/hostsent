@@ -103,6 +103,9 @@ func (f *fakeUserRepo) List(context.Context, dto.UserListQuery) ([]model.User, i
 func (f *fakeUserRepo) UpdateStatus(context.Context, uint64, string) error {
 	return errUnexpectedRepoCall
 }
+func (f *fakeUserRepo) CascadeStatusToSubAccounts(context.Context, uint64, string) ([]uint64, error) {
+	return nil, errUnexpectedRepoCall
+}
 func (f *fakeUserRepo) UpdatePassword(context.Context, uint64, string) error {
 	return errUnexpectedRepoCall
 }

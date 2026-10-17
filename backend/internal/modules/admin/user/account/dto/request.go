@@ -203,6 +203,10 @@ type AdminCreateOrderRequest struct {
 	BillingCycle string  `json:"billing_cycle"` // monthly/quarterly/annually...
 	Price        float64 `json:"price"`         // 覆盖价格（<=0 用商品默认价）
 	PayMode      string  `json:"pay_mode"`      // balance=余额支付并开通; create=仅创建不支付(默认)
+	// PayMethod 具体支付方式（alipay/wechat/balance/manual...）：下单即写入订单，
+	// 使订单与支付方式强绑定。仅创建不支付时也写 —— 后台列表据此看出客户打算怎么付，
+	// 场外收款确认收款时也有默认值可预填。留空按用户默认支付方式解析。
+	PayMethod string `json:"pay_method"`
 	// SpecCode 所选 SKU 编码（T4.1）。商品挂了规格时必填，与用户端下单同口径。
 	SpecCode string `json:"spec_code"`
 	// Quantity 购买数量，<=0 视为 1。

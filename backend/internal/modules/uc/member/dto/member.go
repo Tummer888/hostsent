@@ -59,6 +59,22 @@ type CreateResponse struct {
 	Password string `json:"password"`
 }
 
+// ResetPasswordRequest 重置成员密码。
+// Password 留空时由服务生成一次性密码，并在响应中仅返回一次。
+type ResetPasswordRequest struct {
+	Password string `json:"password"`
+}
+
+// ResetPasswordResponse 重置成员密码响应：一次性密码仅在此返回。
+//
+// 代成员设密属于「账号接管」动作，因此同时撤销该成员的全部有效会话 ——
+// 否则旧密码泄露期间建立的登录态在改密后依然可用。
+type ResetPasswordResponse struct {
+	Password string `json:"password"`
+	// RevokedSessions 本次连带撤销的会话数（≥0）。
+	RevokedSessions int `json:"revoked_sessions"`
+}
+
 // ListMeta 分页元信息。
 type ListMeta struct {
 	Page     int   `json:"page"`

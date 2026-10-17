@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -175,6 +177,190 @@ func (h *UserHandler) ListMembers(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+// CreateSubAccount godoc
+// @Summary 新建子账号（成员）
+// @Description 在指定主账号下新建成员。留空密码则由服务生成一次性密码，仅在本次响应返回。
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Param request body dto.AdminSubAccountCreateRequest true "成员参数"
+// @Success 200 {object} dto.CreateSubAccountResult "成功"
+// @Router /api/v1/admin/users/{id}/members [post]
+func (h *UserHandler) CreateSubAccount(c *gin.Context) {
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
+	var req dto.AdminSubAccountCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	result, err := h.userService.CreateSubAccount(c.Request.Context(), id, req)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// UpdateSubAccount godoc
+// @Summary 修改子账号备注/状态
+// @Description 禁用子账号时连带撤销其全部会话。
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Param memberId path int true "子账号ID"
+// @Param request body dto.AdminSubAccountUpdateRequest true "修改参数"
+// @Success 200 {object} dto.SubAccountMemberInfo "成功"
+// @Router /api/v1/admin/users/{id}/members/{memberId} [put]
+func (h *UserHandler) UpdateSubAccount(c *gin.Context) {
+	ownerID, memberID, ok := parseOwnerAndMember(c)
+	if !ok {
+		return
+	}
+	var req dto.AdminSubAccountUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	info, err := h.userService.UpdateSubAccount(c.Request.Context(), ownerID, memberID, req)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	response.Success(c, info)
+}
+
+// SetSubAccountPermissions godoc
+// @Summary 覆盖式设置子账号权限
+// @Description 只接受可授予的客户侧权限码（资金/实名/成员管理码会被静默过滤）。
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Param memberId path int true "子账号ID"
+// @Param request body dto.AdminSubAccountPermissionsRequest true "权限列表"
+// @Success 200 {object} dto.SubAccountMemberInfo "成功"
+// @Router /api/v1/admin/users/{id}/members/{memberId}/permissions [put]
+func (h *UserHandler) SetSubAccountPermissions(c *gin.Context) {
+	ownerID, memberID, ok := parseOwnerAndMember(c)
+	if !ok {
+		return
+	}
+	var req dto.AdminSubAccountPermissionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	info, err := h.userService.SetSubAccountPermissions(c.Request.Context(), ownerID, memberID, req.Permissions)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	response.Success(c, info)
+}
+
+// ResetSubAccountPassword godoc
+// @Summary 重置子账号密码
+// @Description 留空则由服务生成一次性密码并仅在本次响应返回；改密后撤销该成员全部会话。
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Param memberId path int true "子账号ID"
+// @Param request body dto.AdminSubAccountResetPasswordRequest false "新密码（留空则自动生成）"
+// @Success 200 {object} dto.AdminSubAccountResetPasswordResponse "成功"
+// @Router /api/v1/admin/users/{id}/members/{memberId}/password [put]
+func (h *UserHandler) ResetSubAccountPassword(c *gin.Context) {
+	ownerID, memberID, ok := parseOwnerAndMember(c)
+	if !ok {
+		return
+	}
+	var req dto.AdminSubAccountResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.userService.ResetSubAccountPassword(c.Request.Context(), ownerID, memberID, req.Password)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
+// DisableSubAccount godoc
+// @Summary 禁用子账号
+// @Description 软禁用（保留成员行与审计），并撤销其全部会话。
+// @Tags 用户管理
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Param memberId path int true "子账号ID"
+// @Success 200 {object} response.Body "成功"
+// @Router /api/v1/admin/users/{id}/members/{memberId} [delete]
+func (h *UserHandler) DisableSubAccount(c *gin.Context) {
+	ownerID, memberID, ok := parseOwnerAndMember(c)
+	if !ok {
+		return
+	}
+	if err := h.userService.DisableSubAccount(c.Request.Context(), ownerID, memberID); err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	response.Success(c, "已禁用")
+}
+
+// ListSubAccountLogs godoc
+// @Summary 子账号操作日志
+// @Tags 用户管理
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Param memberId path int true "子账号ID"
+// @Success 200 {object} dto.SubAccountLogListResponse "成功"
+// @Router /api/v1/admin/users/{id}/members/{memberId}/logs [get]
+func (h *UserHandler) ListSubAccountLogs(c *gin.Context) {
+	ownerID, memberID, ok := parseOwnerAndMember(c)
+	if !ok {
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.userService.ListSubAccountLogs(c.Request.Context(), ownerID, memberID, page, pageSize)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
+// SubAccountPermissionOptions godoc
+// @Summary 子账号可选权限项
+// @Description 客户侧权限固定枚举（含中文标签），供前端渲染勾选项。
+// @Tags 用户管理
+// @Produce json
+// @Success 200 {array} dto.SubAccountPermissionOption "成功"
+// @Router /api/v1/admin/users/member-permission-options [get]
+func (h *UserHandler) SubAccountPermissionOptions(c *gin.Context) {
+	response.Success(c, h.userService.SubAccountPermissionOptions())
+}
+
+// parseOwnerAndMember 解析「主账号 ID + 子账号 ID」两个路径参数。
+func parseOwnerAndMember(c *gin.Context) (uint64, uint64, bool) {
+	ownerID, ok := parseUserID(c)
+	if !ok {
+		return 0, 0, false
+	}
+	memberID, err := strconv.ParseUint(c.Param("memberId"), 10, 64)
+	if err != nil || memberID == 0 {
+		response.Error(c, apperrors.New(20001, "invalid memberId"))
+		return 0, 0, false
+	}
+	return ownerID, memberID, true
 }
 
 // UpdateUser godoc

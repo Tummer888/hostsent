@@ -28,6 +28,8 @@ func (a *asm) buildUCAuth() {
 	// 用户中心菜单：薄适配（CONTRIBUTING §2），委托 admin 域菜单服务，
 	// uc 侧只做请求/响应转换，不再自持仓储或 import admin model。
 	a.userMenuService = usermenuservice.NewMenuService(a.menuService)
+	// 菜单处理器在此构造；子账号权限解析器在 buildWire 里接线 ——
+	// memberRepo 那时才存在，构造期传入会拿到 nil 并过度裁剪子账号菜单。
 	a.userMenuHandler = usermenuhandler.NewMenuHandler(a.userMenuService)
 	// 用户中心财务：复用账务核心/充值/账单服务，仅暴露用户自助接口；
 	// 错误码映射由本装配层提供（uc 不依赖 admin 的错误变量）。

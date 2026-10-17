@@ -43,4 +43,21 @@ var (
 	// ErrUserHasInstances 是 repository 层同义哨兵的 service 再出口：
 	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
 	ErrUserHasInstances = repository.ErrUserHasInstances
+
+	// —— 子账号（成员）管理 ——
+	//
+	// 这一组是客户侧 memberService 同义哨兵的 service 再出口（装配层适配器翻译）：
+	// handler 只允许依赖本包哨兵，不得越过 service 判 uc 模块的错误类型。
+	// ErrSubAccountNotFound 目标子账号不存在，或不属于该主账号。
+	ErrSubAccountNotFound = errors.New("子账号不存在或不属于该账号")
+	// ErrSubAccountQuotaExceeded 超出主账号等级的成员数量上限。
+	ErrSubAccountQuotaExceeded = errors.New("子账号数量已达该账号等级上限")
+	// ErrSubAccountInvalidStatus 非法的子账号状态值。
+	ErrSubAccountInvalidStatus = errors.New("非法的子账号状态")
+	// ErrSubAccountPasswordTooShort 指定的子账号密码过短。
+	ErrSubAccountPasswordTooShort = errors.New("密码长度不能少于 6 位")
+	// ErrSubAccountUnavailable 装配层未注入子账号管理能力（装配事故，不是入参问题）。
+	ErrSubAccountUnavailable = errors.New("子账号管理能力未配置")
+	// ErrRechargeSubAccountDenied 子账号不能充值：其余额不在任何消费路径的取数范围内。
+	ErrRechargeSubAccountDenied = errors.New("子账号不支持充值，请对主账号操作")
 )

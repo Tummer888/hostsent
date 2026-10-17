@@ -158,6 +158,8 @@ type UserStatsResponse struct {
 	PurchasedCount  int64   `json:"purchased_count"`
 	// Deleted 已注销用户数（回收站入口徽标，doc104 §4）。
 	Deleted int64 `json:"deleted"`
+	// SubAccountTotal 子账号（成员）总数：与上面所有主账号指标分开统计。
+	SubAccountTotal int64 `json:"sub_account_total"`
 }
 
 // OnlineUserItem 在线用户一行（总览页卡片）。

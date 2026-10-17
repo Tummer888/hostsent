@@ -114,6 +114,60 @@ export interface SubAccountMemberListResponse {
   total: number
 }
 
+/** 新建子账号（成员）请求 */
+export interface SubAccountCreateRequest {
+  username: string
+  email: string
+  phone?: string
+  /** 留空则由服务生成一次性密码，仅在响应中返回一次 */
+  password?: string
+  remark?: string
+  permissions?: string[]
+}
+
+/** 新建子账号响应：一次性密码仅此返回 */
+export interface SubAccountCreateResult {
+  member: SubAccountMemberInfo
+  password: string
+}
+
+/** 修改子账号备注/状态 */
+export interface SubAccountUpdateRequest {
+  remark?: string
+  /** 留空表示不改；仅接受 active / disabled */
+  status?: string
+}
+
+/** 重置子账号密码响应 */
+export interface SubAccountResetPasswordResult {
+  password: string
+  revoked_sessions: number
+}
+
+/** 子账号可选权限项 */
+export interface SubAccountPermissionOption {
+  code: string
+  label: string
+}
+
+/** 子账号操作日志项 */
+export interface SubAccountLogInfo {
+  id: number
+  actor_user_id: number
+  actor_name: string
+  module: string
+  action: string
+  target: string
+  detail: string
+  ip: string
+  created_at: string
+}
+
+export interface SubAccountLogListResponse {
+  items: SubAccountLogInfo[]
+  total: number
+}
+
 export interface UserListMeta {
   page: number
   page_size: number
@@ -448,6 +502,79 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
 export function getUserMembers(id: string | number): Promise<SubAccountMemberListResponse> {
   return request.get<SubAccountMemberListResponse>({
     url: `/users/${id}/members`,
+  })
+}
+
+// —— 子账号（成员）管理（P4-10 管理面补全）——
+// 与客户侧同一套业务规则，管理端只多一条路径前缀 /users/{主账号ID}/members。
+
+/** 在指定主账号下新建成员（留空密码则服务生成一次性密码） */
+export function createUserMember(id: string | number, data: SubAccountCreateRequest): Promise<SubAccountCreateResult> {
+  return request.post<SubAccountCreateResult>({
+    url: `/users/${id}/members`,
+    data,
+  })
+}
+
+/** 修改成员备注/状态（禁用时服务端会连带撤销其会话） */
+export function updateUserMember(
+  id: string | number,
+  memberId: number,
+  data: SubAccountUpdateRequest,
+): Promise<SubAccountMemberInfo> {
+  return request.put<SubAccountMemberInfo>({
+    url: `/users/${id}/members/${memberId}`,
+    data,
+  })
+}
+
+/** 覆盖式设置成员权限 */
+export function setUserMemberPermissions(
+  id: string | number,
+  memberId: number,
+  permissions: string[],
+): Promise<SubAccountMemberInfo> {
+  return request.put<SubAccountMemberInfo>({
+    url: `/users/${id}/members/${memberId}/permissions`,
+    data: { permissions },
+  })
+}
+
+/** 重置成员密码（留空则生成一次性密码），并撤销其全部会话 */
+export function resetUserMemberPassword(
+  id: string | number,
+  memberId: number,
+  password?: string,
+): Promise<SubAccountResetPasswordResult> {
+  return request.put<SubAccountResetPasswordResult>({
+    url: `/users/${id}/members/${memberId}/password`,
+    data: { password },
+  })
+}
+
+/** 禁用成员（软禁用，保留审计） */
+export function disableUserMember(id: string | number, memberId: number): Promise<string> {
+  return request.delete<string>({
+    url: `/users/${id}/members/${memberId}`,
+  })
+}
+
+/** 成员操作日志 */
+export function getUserMemberLogs(
+  id: string | number,
+  memberId: number,
+  params?: { page?: number; page_size?: number },
+): Promise<SubAccountLogListResponse> {
+  return request.get<SubAccountLogListResponse>({
+    url: `/users/${id}/members/${memberId}/logs`,
+    params,
+  })
+}
+
+/** 子账号可选权限项（固定枚举，含中文标签） */
+export function getMemberPermissionOptions(): Promise<SubAccountPermissionOption[]> {
+  return request.get<SubAccountPermissionOption[]>({
+    url: '/users/member-permission-options',
   })
 }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"math/big"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -23,17 +24,71 @@ type MemberService interface {
 	Create(ctx context.Context, ownerID uint64, isSub bool, req dto.CreateRequest) (*dto.CreateResponse, error)
 	Update(ctx context.Context, ownerID uint64, isSub bool, id uint64, req dto.UpdateRequest) (*dto.Info, error)
 	SetPermissions(ctx context.Context, ownerID uint64, isSub bool, id uint64, codes []string) (*dto.Info, error)
+	ResetPassword(ctx context.Context, ownerID uint64, isSub bool, id uint64, req dto.ResetPasswordRequest) (*dto.ResetPasswordResponse, error)
 	Delete(ctx context.Context, ownerID uint64, isSub bool, id uint64) error
 	ListLogs(ctx context.Context, ownerID uint64, isSub bool, id uint64, page, pageSize int) (*dto.OperationLogListResponse, error)
+	// SetSessionRevoker 注入按用户撤销会话能力（可选，装配层调用）。
+	SetSessionRevoker(revoker SessionRevoker)
+	// SetSessionInvalidator 注入会话校验缓存失效能力（可选，装配层调用）。
+	SetSessionInvalidator(invalidator SessionInvalidator)
+	// HasSessionRevoker 装配自检：会话撤销能力是否已接线。
+	HasSessionRevoker() bool
+}
+
+// SessionRevoker 按用户撤销其全部有效会话，返回被撤销的 session_id。
+// 由 uc/auth 的 userRepository 实现（RevokeSessions），装配层注入。
+type SessionRevoker interface {
+	RevokeSessions(ctx context.Context, id uint64, reason string) ([]string, error)
+}
+
+// SessionInvalidator 让会话校验缓存立即失效（由 pkg/sessionguard.Guard 实现）。
+type SessionInvalidator interface {
+	Invalidate(ctx context.Context, sessionIDs ...string)
 }
 
 type memberService struct {
-	repo repository.MemberRepository
+	repo        repository.MemberRepository
+	revoker     SessionRevoker
+	invalidator SessionInvalidator
 }
 
 // NewMemberService 创建成员业务服务。
 func NewMemberService(repo repository.MemberRepository) MemberService {
 	return &memberService{repo: repo}
+}
+
+// SetSessionRevoker 注入按用户撤销会话能力（可选，装配层调用）。
+func (s *memberService) SetSessionRevoker(revoker SessionRevoker) {
+	s.revoker = revoker
+}
+
+// SetSessionInvalidator 注入会话校验缓存失效能力（可选，装配层调用）。
+func (s *memberService) SetSessionInvalidator(invalidator SessionInvalidator) {
+	s.invalidator = invalidator
+}
+
+// HasSessionRevoker 装配自检：会话撤销能力是否已接线。
+func (s *memberService) HasSessionRevoker() bool {
+	return s.revoker != nil
+}
+
+// revokeMemberSessions 撤销某成员的全部有效会话并失效其校验缓存。
+//
+// 失败只吞掉不向上抛：调用点（禁用/删除/改密）的主动作已经完成，
+// 而 sessionguard 的账号状态判定会兜住「已被禁用成员」的每一个请求。
+// 返回撤销条数供调用方回显。
+func (s *memberService) revokeMemberSessions(ctx context.Context, memberID uint64, reason string) int {
+	if s.revoker == nil {
+		return 0
+	}
+	sessionIDs, err := s.revoker.RevokeSessions(ctx, memberID, reason)
+	if err != nil {
+		return 0
+	}
+	if s.invalidator != nil && len(sessionIDs) > 0 {
+		s.invalidator.Invalidate(ctx, sessionIDs...)
+	}
+	return len(sessionIDs)
 }
 
 func (s *memberService) List(ctx context.Context, ownerID uint64, isSub bool, query dto.MemberListQuery) (*dto.ListResponse, error) {
@@ -154,6 +209,10 @@ func (s *memberService) Update(ctx context.Context, ownerID uint64, isSub bool, 
 		if err := s.repo.UpdateProfileFields(ctx, member.ID, fields); err != nil {
 			return nil, err
 		}
+		// 由启用改为禁用 → 连带撤销其会话，让「停用」立即生效。
+		if req.Status == "disabled" && member.Status != "disabled" {
+			s.revokeMemberSessions(ctx, member.ID, "member_disabled")
+		}
 		member, err = s.repo.FindByID(ctx, id)
 		if err != nil {
 			return nil, err
@@ -184,8 +243,41 @@ func (s *memberService) SetPermissions(ctx context.Context, ownerID uint64, isSu
 	return &info, nil
 }
 
+// ResetPassword 重置成员密码（主账号或管理端代设）。
+//
+// 留空则生成一次性密码，仅在本次响应返回。改密后连带撤销该成员的全部有效会话：
+// 代设密码意味着「账号已被接管」，旧密码期间建立的登录态不该继续可用。
+func (s *memberService) ResetPassword(ctx context.Context, ownerID uint64, isSub bool, id uint64, req dto.ResetPasswordRequest) (*dto.ResetPasswordResponse, error) {
+	if isSub {
+		return nil, ErrNotAccountOwner
+	}
+	member, err := s.findOwnedMember(ctx, ownerID, id)
+	if err != nil {
+		return nil, err
+	}
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		password = generatePassword()
+	}
+	if len(password) < 6 {
+		return nil, ErrPasswordTooShort
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.UpdatePasswordHash(ctx, member.ID, string(hash)); err != nil {
+		return nil, err
+	}
+	revoked := s.revokeMemberSessions(ctx, member.ID, "member_password_reset")
+	return &dto.ResetPasswordResponse{Password: password, RevokedSessions: revoked}, nil
+}
+
 // Delete 删除成员：不能删主账号自己；成员名下资源归属主账号，无需迁移。
 // 采用「禁用」而非物理删除（R5 只增不删），成员将无法再登录。
+//
+// 同时撤销其全部有效会话：禁用是「立即停用」，留着登录态等于没禁用
+// （sessionguard 的账号状态判定虽有兜底，但显式撤销让禁用即时可见）。
 func (s *memberService) Delete(ctx context.Context, ownerID uint64, isSub bool, id uint64) error {
 	if isSub {
 		return ErrNotAccountOwner
@@ -200,7 +292,11 @@ func (s *memberService) Delete(ctx context.Context, ownerID uint64, isSub bool, 
 	if err := s.repo.UpdateProfileFields(ctx, member.ID, map[string]any{"status": "disabled"}); err != nil {
 		return err
 	}
-	return s.repo.ReplacePermissions(ctx, member.ID, nil)
+	if err := s.repo.ReplacePermissions(ctx, member.ID, nil); err != nil {
+		return err
+	}
+	s.revokeMemberSessions(ctx, member.ID, "member_disabled")
+	return nil
 }
 
 func (s *memberService) ListLogs(ctx context.Context, ownerID uint64, isSub bool, id uint64, page, pageSize int) (*dto.OperationLogListResponse, error) {

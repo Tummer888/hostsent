@@ -3,6 +3,7 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -151,6 +152,37 @@ func (h *MemberHandler) Delete(c *gin.Context) {
 	response.Success(c, "已删除")
 }
 
+// ResetPassword godoc
+// @Summary 重置成员密码
+// @Description 留空则由服务生成一次性密码并仅在本次响应返回；改密后撤销该成员全部会话。
+// @Tags 用户中心-成员
+// @Security BearerAuth
+// @Param request body dto.ResetPasswordRequest false "新密码（留空则自动生成）"
+// @Success 200 {object} dto.ResetPasswordResponse "成功"
+// @Router /api/v1/uc/members/{id}/password [put]
+func (h *MemberHandler) ResetPassword(c *gin.Context) {
+	ownerID, isSub, ok := actor(c)
+	if !ok {
+		return
+	}
+	id, valid := pathID(c, "id")
+	if !valid {
+		return
+	}
+	var req dto.ResetPasswordRequest
+	// 允许空 body（走一次性密码）：仅 JSON 解析失败才报参数错误。
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.memberService.ResetPassword(c.Request.Context(), ownerID, isSub, id, req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // ListLogs godoc
 // @Summary 成员操作日志
 // @Tags 用户中心-成员
@@ -206,6 +238,7 @@ func writeError(err error) *apperrors.AppError {
 	case errors.Is(err, service.ErrUsernameTaken),
 		errors.Is(err, service.ErrEmailTaken),
 		errors.Is(err, service.ErrPhoneTaken),
+		errors.Is(err, service.ErrPasswordTooShort),
 		errors.Is(err, service.ErrInvalidStatus):
 		return apperrors.New(30005, err.Error())
 	default:

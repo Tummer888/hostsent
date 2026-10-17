@@ -1,13 +1,8 @@
 <template>
   <div class="user-overview-page">
-    <!-- 面包屑：与参考稿一致，标出当前页在「用户管理」下的位置 -->
-    <nav class="overview-breadcrumb" aria-label="面包屑">
-      <span class="overview-breadcrumb__item">首页</span>
-      <span class="overview-breadcrumb__sep">/</span>
-      <span class="overview-breadcrumb__item">用户管理</span>
-      <span class="overview-breadcrumb__sep">/</span>
-      <span class="overview-breadcrumb__item overview-breadcrumb__item--current">用户总览</span>
-    </nav>
+    <!-- 面包屑已由布局层统一提供（layouts/index.vue 顶栏，按路由+菜单树生成），
+         本页原先自带一份「首页 / 用户管理 / 用户总览」，会与全局的那条重复，
+         故删除。层级信息在路由表与菜单树里已有，保留第二份必然与全局漂移。 -->
 
     <header class="overview-header surface-card">
       <div class="overview-header__brand">
@@ -766,24 +761,6 @@ html.dark .user-overview-page {
   transition:
     background-color var(--hs-duration-fast),
     border-color var(--hs-duration-fast);
-}
-
-/* ---------- 面包屑 ---------- */
-.overview-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--color-muted-foreground);
-}
-
-.overview-breadcrumb__sep {
-  color: var(--color-border);
-}
-
-.overview-breadcrumb__item--current {
-  color: var(--color-foreground);
-  font-weight: 600;
 }
 
 /* ---------- 页头 ---------- */

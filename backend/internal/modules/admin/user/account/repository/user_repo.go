@@ -36,6 +36,8 @@ type UserRepository interface {
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 	List(ctx context.Context, query dto.UserListQuery) ([]model.User, int64, error)
 	UpdateStatus(ctx context.Context, id uint64, status string) error
+	// CascadeStatusToSubAccounts 把主账号状态同步到其名下子账号，返回受影响的子账号 ID。
+	CascadeStatusToSubAccounts(ctx context.Context, ownerID uint64, status string) ([]uint64, error)
 	UpdatePassword(ctx context.Context, id uint64, passwordHash string) error
 	GetRoles(ctx context.Context, userID uint64) ([]model.Role, error)
 	// RolesByUserIDs 批量查询 userID → 角色列表，替换列表页逐行 GetRoles 的 N+1。
@@ -309,10 +311,16 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 		db = db.Where("users.agent_level_id IS NULL")
 	}
 	// 主账号 / 子账号筛选（P4-10）。
+	//
+	// 默认只看主账号：子账号没有独立财务、实名与等级，混进「用户列表」会让
+	// 运营把成员当成客户主体（用户总数、余额合计都会虚高）。要看成员必须
+	// 显式传 is_sub_account=true，那时列表就是「成员列表」的语义。
 	switch strings.TrimSpace(query.IsSubAccount) {
 	case "true", "1":
 		db = db.Where("users.is_sub_account = ?", true)
 	case "false", "0":
+		db = db.Where("users.is_sub_account = ?", false)
+	default:
 		db = db.Where("users.is_sub_account = ?", false)
 	}
 
@@ -385,6 +393,33 @@ func (r *userRepository) PermissionsByUserIDs(ctx context.Context, ids []uint64)
 
 func (r *userRepository) UpdateStatus(ctx context.Context, id uint64, status string) error {
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Update("status", status).Error
+}
+
+// CascadeStatusToSubAccounts 把主账号的状态同步到其名下全部子账号。
+//
+// 主账号被禁用 = 该客户主体停用，成员自然一并失效（设计 §4.6.2 从属关系）。
+// 不做级联会让子账号拿着旧令牌继续操作主账号的资源与余额 —— 实测确认过：
+// 主账号 status=disabled 后，子账号的既有会话仍被判为有效。
+//
+// 只朝「收紧」方向同步（把子账号置为与主账号相同的禁用态），恢复时不动子账号
+// 各自的状态：运营可能因为某个成员违规单独禁用它，主账号恢复不该把那个成员
+// 一起放出来。返回受影响的子账号 ID，供调用方撤销其会话。
+func (r *userRepository) CascadeStatusToSubAccounts(ctx context.Context, ownerID uint64, status string) ([]uint64, error) {
+	var ids []uint64
+	if err := r.db.WithContext(ctx).Model(&model.User{}).
+		Where("owner_user_id = ? AND is_sub_account = ? AND deleted_at IS NULL", ownerID, true).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if err := r.db.WithContext(ctx).Model(&model.User{}).
+		Where("id IN ?", ids).
+		Update("status", status).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func (r *userRepository) UpdatePassword(ctx context.Context, id uint64, passwordHash string) error {
@@ -466,7 +501,13 @@ func (r *userRepository) Stats(ctx context.Context) (*model.UserStats, error) {
 
 	// 统计口径（doc104 §4.8）：除 Deleted 外一律只统计**未注销**用户，
 	// 否则注销后总数/活跃数/余额合计都会虚高。
-	active := r.db.WithContext(ctx).Model(&model.User{}).Where("deleted_at IS NULL")
+	//
+	// 只统计主账号（is_sub_account = false）：子账号不是客户主体，没有独立
+	// 余额与实名。把它算进「用户总数」会让总数虚高，算进 SUM(balance) 更会把
+	// 子账号钱包里的孤儿钱计进平台总余额。子账号单独出 SubAccountTotal。
+	active := r.db.WithContext(ctx).Model(&model.User{}).
+		Where("deleted_at IS NULL").
+		Where("is_sub_account = ?", false)
 
 	if err := active.Session(&gorm.Session{}).Count(&stats.Total).Error; err != nil {
 		return nil, err
@@ -505,6 +546,13 @@ func (r *userRepository) Stats(ctx context.Context) (*model.UserStats, error) {
 	}
 	// 已注销用户数（回收站入口展示）。
 	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("deleted_at IS NOT NULL").Count(&stats.Deleted).Error; err != nil {
+		return nil, err
+	}
+	// 子账号总数（未注销）：与上面所有主账号指标分开统计。
+	if err := r.db.WithContext(ctx).Model(&model.User{}).
+		Where("deleted_at IS NULL").
+		Where("is_sub_account = ?", true).
+		Count(&stats.SubAccountTotal).Error; err != nil {
 		return nil, err
 	}
 

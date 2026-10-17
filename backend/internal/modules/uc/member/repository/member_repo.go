@@ -20,6 +20,8 @@ type MemberRepository interface {
 	FindByPhone(ctx context.Context, phone string) (*model.Member, error)
 	Create(ctx context.Context, member *model.Member) error
 	UpdateProfileFields(ctx context.Context, id uint64, fields map[string]any) error
+	// UpdatePasswordHash 更新成员密码哈希（主账号/管理端代设密码）。
+	UpdatePasswordHash(ctx context.Context, id uint64, passwordHash string) error
 	CountSubAccounts(ctx context.Context, ownerID uint64) (int64, error)
 	// MaxSubAccountsOf 返回主账号当前等级的子账号上限；无等级配置时返回 0（表示不限制）。
 	MaxSubAccountsOf(ctx context.Context, ownerID uint64) (int, error)
@@ -102,6 +104,11 @@ func (r *memberRepository) Create(ctx context.Context, member *model.Member) err
 
 func (r *memberRepository) UpdateProfileFields(ctx context.Context, id uint64, fields map[string]any) error {
 	return r.db.WithContext(ctx).Model(&model.Member{}).Where("id = ?", id).Updates(fields).Error
+}
+
+func (r *memberRepository) UpdatePasswordHash(ctx context.Context, id uint64, passwordHash string) error {
+	return r.db.WithContext(ctx).Model(&model.Member{}).Where("id = ?", id).
+		Update("password_hash", passwordHash).Error
 }
 
 func (r *memberRepository) CountSubAccounts(ctx context.Context, ownerID uint64) (int64, error) {

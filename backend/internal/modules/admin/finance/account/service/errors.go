@@ -20,4 +20,9 @@ var (
 	ErrWalletNotFound = errors.New("钱包不存在")
 	// ErrAdjustDisabled 人工调账已被财务配置关闭（finance.adjust_enabled=false）
 	ErrAdjustDisabled = errors.New("人工调账已关闭，请在财务配置中开启")
+	// ErrSubAccountWalletDenied 子账号没有独立钱包：财务主体是主账号。
+	//
+	// 所有消费路径（下单/续费）都按 EffectiveUserID 取主账号，子账号钱包里的钱
+	// 既花不掉也无法提现 —— 给它建钱包只会产生一笔财务无法归集的孤儿钱。
+	ErrSubAccountWalletDenied = errors.New("子账号不支持独立钱包，资金操作请对主账号执行")
 )

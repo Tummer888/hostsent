@@ -77,7 +77,10 @@
         >
           {{ profile?.status === 'active' ? '禁用账号' : '启用账号' }}
         </t-button>
+        <!-- 子账号不显示「调整余额」：其钱包不在任何消费路径的取数范围内
+             （下单/续费都按主账号扣款），充进去既花不掉也无法提现，后端也会拒绝。 -->
         <t-button
+          v-if="!profile?.is_sub_account"
           v-permission="'finance:adjust'"
           variant="outline"
           :disabled="!profile"

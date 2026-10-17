@@ -217,11 +217,15 @@
             </template>
 
             <template #operation="{ row }">
-              <t-space size="8px">
+              <t-space size="8px" break-line>
                 <t-link theme="primary" hover="color" @click="openPermissions(row)">权限</t-link>
                 <t-link theme="primary" hover="color" @click="openLogs(row)">日志</t-link>
                 <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-                <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+                <t-link theme="primary" hover="color" @click="handleResetPassword(row)">重置密码</t-link>
+                <t-link v-if="row.status !== 'disabled'" theme="danger" hover="color" @click="handleDisable(row)"
+                  >禁用</t-link
+                >
+                <t-link v-else theme="success" hover="color" @click="handleEnable(row)">启用</t-link>
               </t-space>
             </template>
 
@@ -325,10 +329,21 @@
     </t-dialog>
 
     <!-- ============ 一次性密码提示 ============ -->
-    <t-dialog v-model:visible="passwordVisible" header="成员创建成功" width="460px" :footer="false">
+    <t-dialog
+      v-model:visible="passwordVisible"
+      :header="passwordScene === 'create' ? '成员创建成功' : '密码已重置'"
+      width="460px"
+      :footer="false"
+    >
       <t-space direction="vertical" size="10px">
-        <span>成员「{{ createdUsername }}」已创建，请把以下一次性密码转达给成员，登录后请尽快修改：</span>
+        <span v-if="passwordScene === 'create'">
+          成员「{{ createdUsername }}」已创建，请把以下一次性密码转达给成员，登录后请尽快修改：
+        </span>
+        <span v-else>成员「{{ createdUsername }}」的密码已重置，请转达以下一次性密码：</span>
         <div class="password-box">{{ createdPassword }}</div>
+        <span v-if="passwordScene === 'reset' && revokedSessions > 0" class="muted">
+          该成员的 {{ revokedSessions }} 个登录会话已失效，需用新密码重新登录。
+        </span>
       </t-space>
     </t-dialog>
   </div>
@@ -358,6 +373,7 @@ import {
   deleteMember,
   getMemberList,
   getMemberLogs,
+  resetMemberPassword,
   setMemberPermissions,
   updateMember,
   type MemberInfo,
@@ -446,7 +462,7 @@ const columns: PrimaryTableCol<MemberInfo>[] = [
   { colKey: 'permissions', title: '权限', minWidth: 260 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'last_login_at', title: '最近登录', width: 170 },
-  { colKey: 'operation', title: '操作', width: 220, fixed: 'right' },
+  { colKey: 'operation', title: '操作', width: 340, fixed: 'right' },
 ]
 
 const logColumns: PrimaryTableCol<MemberOperationLog>[] = [
@@ -492,6 +508,10 @@ const memberOptions = computed(() =>
 const passwordVisible = ref(false)
 const createdUsername = ref('')
 const createdPassword = ref('')
+// 同一个弹窗承担「创建成功」与「重置密码完成」两种场景：对用户而言都是
+// 「拿走这串一次性密码」；用标题区分即可，不必做两个几乎一样的弹窗。
+const passwordScene = ref<'create' | 'reset'>('create')
+const revokedSessions = ref(0)
 
 /** 概览快照：统计卡片、引导项、最近登录、权限项与操作记录下拉都取自它。 */
 async function loadOverview() {
@@ -617,6 +637,7 @@ async function handleSubmit() {
       })
       createdUsername.value = data.member.username
       createdPassword.value = data.password
+      passwordScene.value = 'create'
       passwordVisible.value = true
     }
     formVisible.value = false
@@ -643,10 +664,55 @@ async function handlePermissionSubmit() {
   }
 }
 
+/**
+ * 禁用成员：与「删除」的区别在于**保留已授予的权限**。
+ *
+ * 后端两者都是软禁用（不物理删除，数据仍归属主账号），reset 时清空权限，
+ * 所以「禁用」更适合临时停用（如人员休假），恢复时权限原样还在。
+ */
+function handleDisable(row: MemberInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '禁用成员',
+    body: `禁用后成员「${row.username}」将无法登录，其当前会话会被立即撤销，已授予的权限会被保留。是否继续？`,
+    confirmBtn: { content: '禁用', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      try {
+        await updateMember(row.id, { status: 'disabled', remark: row.remark })
+        MessagePlugin.success('成员已禁用')
+        dialog.destroy()
+        await Promise.all([loadMembers(), loadOverview()])
+      } catch (error) {
+        MessagePlugin.error((error as Error)?.message || '禁用失败')
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
+function handleEnable(row: MemberInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '启用成员',
+    body: `确认恢复成员「${row.username}」的登录权限？`,
+    confirmBtn: '启用',
+    onConfirm: async () => {
+      try {
+        await updateMember(row.id, { status: 'active', remark: row.remark })
+        MessagePlugin.success('成员已启用')
+        dialog.destroy()
+        await Promise.all([loadMembers(), loadOverview()])
+      } catch (error) {
+        MessagePlugin.error((error as Error)?.message || '启用失败')
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
 function handleDelete(row: MemberInfo) {
   const dialog = DialogPlugin.confirm({
     header: '删除成员',
-    body: `确认删除成员「${row.username}」？删除后该账号将无法登录，名下数据仍归属主账号。`,
+    body: `确认删除成员「${row.username}」？删除后该账号将无法登录，已授予的权限会被清空，名下数据仍归属主账号。`,
     confirmBtn: { content: '确认删除', theme: 'danger' },
     cancelBtn: { content: '取消' },
     onConfirm: async () => {
@@ -657,6 +723,35 @@ function handleDelete(row: MemberInfo) {
         await Promise.all([loadMembers(), loadOverview()])
       } catch (error) {
         MessagePlugin.error((error as Error)?.message || '删除成员失败')
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
+/**
+ * 重置成员密码：生成一次性密码并撤销该成员当前全部登录会话。
+ *
+ * 二次确认是必要的：它会打断成员正在进行的操作（会话立即失效），
+ * 而一次性密码只在响应里出现一次，关掉弹窗就再也拿不到了。
+ */
+function handleResetPassword(row: MemberInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '重置成员密码',
+    body: `将为成员「${row.username}」生成一次性密码，并使其当前登录立即失效。是否继续？`,
+    confirmBtn: '生成并重置',
+    onConfirm: async () => {
+      try {
+        const { data } = await resetMemberPassword(row.id)
+        passwordScene.value = 'reset'
+        createdUsername.value = row.username
+        createdPassword.value = data.password
+        revokedSessions.value = data.revoked_sessions
+        passwordVisible.value = true
+        dialog.destroy()
+        await loadMembers()
+      } catch (error) {
+        MessagePlugin.error((error as Error)?.message || '重置密码失败')
       }
     },
     onClose: () => dialog.destroy(),

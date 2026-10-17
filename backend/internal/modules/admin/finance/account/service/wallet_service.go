@@ -109,6 +109,39 @@ func (s *walletService) SetConsumeRecorder(recorder ConsumeRecorder) {
 	s.consumeRecorder = recorder
 }
 
+// rejectSubAccount 记账前确认 userID 不是子账号。
+//
+// 为什么要有这道守卫：钱包是「懒创建」的——记账时查不到账户就建一个。
+// 于是任何一条指向子账号的记账调用都会顺手给它建出钱包，之后这笔钱
+// 既进不了主账号余额（消费走 EffectiveUserID，取的是主账号），
+// 也无法提现，成为财务无法归集的孤儿钱。
+//
+// 只用 users 表两列，不引用户模块（财务核心不该反向依赖账号域）；
+// 查不到用户时放行，交给下游既有校验处理，避免这里把错误吞成「账号不存在」。
+func (s *walletService) rejectSubAccount(ctx context.Context, userID uint64) error {
+	if userID == 0 {
+		return nil
+	}
+	var row struct {
+		IsSubAccount bool `gorm:"column:is_sub_account"`
+	}
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Select("is_sub_account").
+		Where("id = ?", userID).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if row.IsSubAccount {
+		return ErrSubAccountWalletDenied
+	}
+	return nil
+}
+
 func (s *walletService) Balance(ctx context.Context, userID uint64) (*accountdto.WalletInfo, error) {
 	acc, err := s.walletRepo.FindByUser(s.db, userID)
 	if err != nil {
@@ -129,6 +162,12 @@ func (s *walletService) Change(ctx context.Context, req ChangeRequest) (*transmo
 	}
 	if req.Direction != transmodel.DirectionIncome && req.Direction != transmodel.DirectionExpense {
 		return nil, ErrInvalidDirection
+	}
+	// 子账号不参与记账：财务主体只有主账号。放在事务外是刻意的——
+	// 这里要的是「拒绝」，而不是「先建钱包再回滚」，否则每次调用都会
+	// 留下一次无意义的写入尝试。
+	if err := s.rejectSubAccount(ctx, req.UserID); err != nil {
+		return nil, err
 	}
 
 	var result *transmodel.WalletTransaction
@@ -252,6 +291,10 @@ func (s *walletService) SettleFrozen(ctx context.Context, req FreezeRequest) (*t
 func (s *walletService) moveFrozen(ctx context.Context, req FreezeRequest, action string) (*transmodel.WalletTransaction, error) {
 	if req.Amount <= 0 {
 		return nil, ErrInvalidAmount
+	}
+	// 同 Change：子账号没有独立钱包，冻结/解冻/结算一律拒绝。
+	if err := s.rejectSubAccount(ctx, req.UserID); err != nil {
+		return nil, err
 	}
 	bizType := req.BizType
 	if bizType == "" {

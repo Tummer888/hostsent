@@ -1919,6 +1919,9 @@ var seedPermissionDefaults = []seedPermission{
 	// 删除属高风险动作：码在此声明，但 rolePermissionCodes 只授予超管，ops/finance 不默认下发。
 	{ParentCode: "order:list", Name: "核验订单", Code: "order:verify", Type: "button", SortOrder: 5, Status: "active"},
 	{ParentCode: "order:list", Name: "删除订单", Code: "order:delete", Type: "button", SortOrder: 6, Status: "active"},
+	// 确认收款 = 场外收款人工入账（对公转账/线下现金）：直接产生已支付订单与资金台账，
+	// 是资金动作，与「核验/备注」这类纯标记分开授权。
+	{ParentCode: "order:list", Name: "确认收款", Code: "order:confirm", Type: "button", SortOrder: 7, Status: "active"},
 	{ParentCode: "order", Name: "退款管理", Code: "order:refunds", Type: "menu", SortOrder: 2, Status: "active"},
 	{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
 	// 退款策略（可退时限/免审开关，按商品来源+分类配置）
@@ -2230,6 +2233,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:activate",
 			"order:verify",
 			"order:delete",
+			"order:confirm",
 			"order:refund:policy",
 			"order:refunds",
 			"order:refund:audit",
@@ -2415,6 +2419,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order",
 			"order:list",
 			"order:refund",
+			"order:confirm",
 			"order:refund:policy",
 			"order:refunds",
 			"order:refund:audit",
@@ -3652,7 +3657,10 @@ func seedNotificationTemplates(tx *gorm.DB) error {
 		// 通知文案统一指向「同步状态运维控制台 → 实例对账」，别让管理员满后台找入口。
 		{Event: notifymodel.EventReconcileBelowCost, TitleTpl: "售价低于上游成本", ContentTpl: "实例 {instance_mark}（{provider_name}）本地售价 {local_value} 低于上游成本 {upstream_value}，每期亏损 {loss}。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核价。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventReconcileExpire, TitleTpl: "到期时间与上游不同步", ContentTpl: "实例 {instance_mark}（{provider_name}）本地到期 {local_value} 与上游 {upstream_value} 相差 {diff_days} 天。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核对账期。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
-		{Event: notifymodel.EventReconcileStatus, TitleTpl: "运行状态与上游不同步", ContentTpl: "实例 {instance_mark}（{provider_name}）本地状态 {local_value} 与上游状态 {upstream_value} 不一致。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核实服务可用性。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		// 状态类差异用"服务"措辞：比的是服务维度（本地 lifecycle + 暂停原因 vs 上游
+		// domainstatus），与机器开关机无关 —— 写成"运行状态不同步"会让管理员
+		// 把客户的正常关机当成状态漂移去排查（第二十一轮）。
+		{Event: notifymodel.EventReconcileStatus, TitleTpl: "服务状态与上游不一致", ContentTpl: "实例 {instance_mark}（{provider_name}）本地服务 {local_value} 与上游服务 {upstream_value} 不一致。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核实服务可用性。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSystem, TitleTpl: "{title}", ContentTpl: "{content}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 	}
 	for _, item := range defaults {

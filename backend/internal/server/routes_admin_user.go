@@ -62,8 +62,20 @@ func registerAdminUserRoutes(v1 *gin.RouterGroup, app *App) {
 		users.GET("/activity-overview", app.perm("system:user:list"), app.userHandler.GetActivityOverview)
 		// 代下单可选项（规格/周期/选配项）：静态段须注册在 /:id 之前。
 		users.GET("/order-config", app.perm("user:create"), app.userHandler.OrderConfig)
+		// 子账号可选权限项（静态段，须注册在 /:id 之前）：客户侧权限固定枚举，
+		// 与用户端 /uc/members 的 permission_options 同源，避免两处各写一份中文标签。
+		users.GET("/member-permission-options", app.perm("user:detail"), app.userHandler.SubAccountPermissionOptions)
 		users.GET(":id", app.perm("user:detail"), app.userHandler.GetUser)
+		// 子账号（成员）管理（P4-10 管理面补全）：与客户侧同一套业务规则
+		// （权限枚举、等级配额、唯一性校验、改密撤会话），只在归属判定上以路径上的
+		// 主账号为准。写操作统一挂 user:update —— 与「改用户资料」同档权限。
 		users.GET(":id/members", app.perm("user:detail"), app.userHandler.ListMembers)
+		users.POST(":id/members", app.perm("user:update"), app.userHandler.CreateSubAccount)
+		users.PUT(":id/members/:memberId", app.perm("user:update"), app.userHandler.UpdateSubAccount)
+		users.PUT(":id/members/:memberId/permissions", app.perm("user:update"), app.userHandler.SetSubAccountPermissions)
+		users.PUT(":id/members/:memberId/password", app.perm("user:update"), app.userHandler.ResetSubAccountPassword)
+		users.DELETE(":id/members/:memberId", app.perm("user:update"), app.userHandler.DisableSubAccount)
+		users.GET(":id/members/:memberId/logs", app.perm("user:detail"), app.userHandler.ListSubAccountLogs)
 		users.GET(":id/detail-aggregate", app.perm("user:detail"), app.userDetailHandler.GetAggregate)
 		users.PUT(":id", app.perm("user:update"), app.userHandler.UpdateUser)
 		users.PATCH(":id/status", app.perm("user:update_status"), app.userHandler.UpdateUserStatus)

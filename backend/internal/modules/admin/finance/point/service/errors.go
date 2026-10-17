@@ -16,4 +16,6 @@ var (
 	ErrInsufficientPoints = errors.New("积分不足")
 	// ErrAccountNotFound 积分账户不存在。
 	ErrAccountNotFound = errors.New("积分账户不存在")
+	// ErrSubAccountPointDenied 子账号不持有积分账户：积分主体是主账号。
+	ErrSubAccountPointDenied = errors.New("子账号不支持独立积分账户，积分归属于主账号")
 )

@@ -107,6 +107,9 @@ func (a *asm) buildUserDomain() {
 	// 强制下线要真正生效：撤销会话后立即失效 sessionguard 的校验缓存，
 	// 否则被踢的令牌还能再用最多 positiveTTL（5 分钟）。
 	a.securityService.SetSessionInvalidator(a.sessionGuard)
+	// 注意：userService 的会话撤销能力不在这里接线 —— userCenterRepo 由 buildUCAuth
+	// 构造，而本函数（buildUserDomain）在它之前执行。提前接线会拿到 nil，
+	// 表现为「禁用主账号后其子账号旧令牌仍可用」（实测踩过）。统一放到 buildWire。
 	a.sessionExpireScheduler = securityservice.NewSessionExpireScheduler(a.securityService, a.logger)
 	// 风控（doc06 §4.3/§4.4）：规则引擎只写风险事件、绝不阻断登录；黑名单守卫会
 	// 阻断，因此是独立组件、判定逐条可解释。两者都在装配层构造，经中性接口注入

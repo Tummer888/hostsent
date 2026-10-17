@@ -97,6 +97,15 @@ func (s *referralService) AccrueForOrder(ctx context.Context, in AccrualInput) e
 	if inviterID == 0 || inviterID == in.BuyerUserID {
 		return nil // 无邀请人或自邀（注册已拒绝，此处双保险）
 	}
+	// 子账号不参与推广：它不是客户主体，不该有返现账户。正常数据里
+	// 子账号的 inviter_user_id 为 NULL（注册入口已排除），这里是历史脏数据的
+	// 兜底——宁可少计提一笔，也不要给子账号建出推广账户。
+	// 与上文「规则缺失/不达门槛返回 nil」同一容错策略：不计提但不阻断业务。
+	if sub, err := s.isSubAccount(ctx, inviterID); err != nil {
+		return err
+	} else if sub {
+		return nil
+	}
 
 	bizType := model.TxTypeCashback
 	rate := rates.Subsequent
@@ -408,4 +417,24 @@ func normalizePage(page, pageSize int) (int, int) {
 		pageSize = 100
 	}
 	return page, pageSize
+}
+
+// isSubAccount 判断 userID 是否为子账号（见 AccrueForOrder 的说明）。
+// 只读 users 表一列，不引账号域模块。
+func (s *referralService) isSubAccount(ctx context.Context, userID uint64) (bool, error) {
+	var row struct {
+		IsSubAccount bool `gorm:"column:is_sub_account"`
+	}
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Select("is_sub_account").
+		Where("id = ?", userID).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return row.IsSubAccount, nil
 }

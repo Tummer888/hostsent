@@ -49,6 +49,17 @@ func respondUserErr(c *gin.Context, err error) {
 		// 回落 default 会返回 50001，前端只能提示「服务器错误」，运营看不出
 		// 自己选错了角色或等级。
 		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(40001, err.Error()))
+	case errors.Is(err, service.ErrSubAccountUnavailable):
+		// 装配事故：能力没接上。给 500 而不是 400 —— 这不是运营填错了什么。
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
+	case errors.Is(err, service.ErrSubAccountNotFound):
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, err.Error()))
+	case errors.Is(err, service.ErrSubAccountQuotaExceeded),
+		errors.Is(err, service.ErrSubAccountInvalidStatus),
+		errors.Is(err, service.ErrSubAccountPasswordTooShort),
+		errors.Is(err, service.ErrRechargeSubAccountDenied):
+		// 配额/状态/密码长度都是调用方入参或客户等级导致的业务拒绝，不是服务端故障。
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(40001, err.Error()))
 	case errors.Is(err, service.ErrLevelNotFound), errors.Is(err, service.ErrAgentLevelNotFound):
 		// 等级不存在单独成一条：上面的 ErrUserNotFound 分支会把它翻成
 		// 「用户不存在」，改等级/代理等级时选中一个不存在的等级不该指错对象。

@@ -98,6 +98,15 @@ func (f *fakeMemberRepo) UpdateProfileFields(_ context.Context, id uint64, field
 	return nil
 }
 
+func (f *fakeMemberRepo) UpdatePasswordHash(_ context.Context, id uint64, passwordHash string) error {
+	m, ok := f.members[id]
+	if !ok {
+		return gorm.ErrRecordNotFound
+	}
+	m.PasswordHash = passwordHash
+	return nil
+}
+
 func (f *fakeMemberRepo) CountSubAccounts(_ context.Context, ownerID uint64) (int64, error) {
 	var count int64
 	for _, m := range f.members {
@@ -259,5 +268,166 @@ func TestMemberDeleteDisablesInsteadOfRemoving(t *testing.T) {
 	}
 	if len(repo.permissions[1]) != 0 {
 		t.Fatalf("删除后权限未清空: %v", repo.permissions[1])
+	}
+}
+
+// —— 重置密码与撤会话（本轮补全）——
+
+// fakeSessionRevoker 记录被撤销会话的用户，验证改密/禁用是否连带撤销登录态。
+type fakeSessionRevoker struct {
+	revoked map[uint64]int
+}
+
+func (f *fakeSessionRevoker) RevokeSessions(_ context.Context, id uint64, _ string) ([]string, error) {
+	if f.revoked == nil {
+		f.revoked = map[uint64]int{}
+	}
+	f.revoked[id]++
+	return []string{"sess-" + itoa(id)}, nil
+}
+
+// fakeSessionInvalidator 记录缓存失效调用（应收到被撤销的 session_id）。
+type fakeSessionInvalidator struct{ invalidated []string }
+
+func (f *fakeSessionInvalidator) Invalidate(_ context.Context, sessionIDs ...string) {
+	f.invalidated = append(f.invalidated, sessionIDs...)
+}
+
+func itoa(v uint64) string {
+	if v == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(buf[i:])
+}
+
+func newMemberWithSessions(t *testing.T) (*memberService, *fakeMemberRepo, *fakeSessionRevoker, *fakeSessionInvalidator) {
+	t.Helper()
+	repo := newFakeMemberRepo()
+	svc := NewMemberService(repo).(*memberService)
+	revoker := &fakeSessionRevoker{}
+	invalidator := &fakeSessionInvalidator{}
+	svc.SetSessionRevoker(revoker)
+	svc.SetSessionInvalidator(invalidator)
+	return svc, repo, revoker, invalidator
+}
+
+// TestResetPasswordGeneratesOneTimePasswordAndRevokesSessions 改密应生成一次性密码
+// 并撤销该成员全部会话（旧密码泄露期间建立的登录态不能继续可用）。
+func TestResetPasswordGeneratesOneTimePasswordAndRevokesSessions(t *testing.T) {
+	svc, repo, revoker, invalidator := newMemberWithSessions(t)
+	owner := uint64(1)
+	member := &model.Member{ID: 200, Username: "sub_a", Email: "sub_a@example.com",
+		Status: "active", OwnerUserID: &owner, IsSubAccount: true, PasswordHash: "old-hash"}
+	repo.members[member.ID] = member
+
+	resp, err := svc.ResetPassword(context.Background(), owner, false, member.ID, dto.ResetPasswordRequest{})
+	if err != nil {
+		t.Fatalf("重置密码失败: %v", err)
+	}
+	if len(resp.Password) != 14 {
+		t.Fatalf("未指定密码时应生成 14 位一次性密码，实际 %q", resp.Password)
+	}
+	if repo.members[member.ID].PasswordHash == "old-hash" {
+		t.Fatal("密码哈希未更新")
+	}
+	if revoker.revoked[member.ID] == 0 {
+		t.Fatal("改密后应撤销该成员会话")
+	}
+	if len(invalidator.invalidated) == 0 {
+		t.Fatal("撤销会话后应失效会话校验缓存")
+	}
+	if resp.RevokedSessions == 0 {
+		t.Fatal("响应应回报被撤销的会话数")
+	}
+}
+
+// TestResetPasswordRejectsShortPassword 显式指定的密码过短应被拒（不落库、不撤会话）。
+func TestResetPasswordRejectsShortPassword(t *testing.T) {
+	svc, repo, revoker, _ := newMemberWithSessions(t)
+	owner := uint64(1)
+	member := &model.Member{ID: 201, Username: "sub_b", Status: "active",
+		OwnerUserID: &owner, IsSubAccount: true, PasswordHash: "old-hash"}
+	repo.members[member.ID] = member
+
+	_, err := svc.ResetPassword(context.Background(), owner, false, member.ID, dto.ResetPasswordRequest{Password: "123"})
+	if !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("短密码应返回 ErrPasswordTooShort，实际 %v", err)
+	}
+	if repo.members[member.ID].PasswordHash != "old-hash" {
+		t.Fatal("被拒的请求不该改动密码")
+	}
+	if revoker.revoked[member.ID] != 0 {
+		t.Fatal("被拒的请求不该撤销会话")
+	}
+}
+
+// TestResetPasswordForOthersMemberDenied 主账号不能重置别人成员的密码（越权关键点）。
+func TestResetPasswordForOthersMemberDenied(t *testing.T) {
+	svc, repo, _, _ := newMemberWithSessions(t)
+	owner := uint64(1)
+	other := uint64(2)
+	member := &model.Member{ID: 202, Username: "sub_c", Status: "active",
+		OwnerUserID: &other, IsSubAccount: true, PasswordHash: "old-hash"}
+	repo.members[member.ID] = member
+
+	_, err := svc.ResetPassword(context.Background(), owner, false, member.ID, dto.ResetPasswordRequest{Password: "newpass123"})
+	if !errors.Is(err, ErrMemberNotFound) {
+		t.Fatalf("他人成员应视为不存在，实际 %v", err)
+	}
+}
+
+// TestResetPasswordDeniedForSubAccount 子账号不能重置成员密码。
+func TestResetPasswordDeniedForSubAccount(t *testing.T) {
+	svc, repo, _, _ := newMemberWithSessions(t)
+	owner := uint64(1)
+	member := &model.Member{ID: 203, Username: "sub_d", Status: "active",
+		OwnerUserID: &owner, IsSubAccount: true, PasswordHash: "old-hash"}
+	repo.members[member.ID] = member
+
+	_, err := svc.ResetPassword(context.Background(), owner, true, member.ID, dto.ResetPasswordRequest{Password: "newpass123"})
+	if !errors.Is(err, ErrNotAccountOwner) {
+		t.Fatalf("子账号应被拒，实际 %v", err)
+	}
+}
+
+// TestDisableRevokesSessions 禁用成员应撤销其会话（否则「禁用」等于没生效）。
+func TestDisableRevokesSessions(t *testing.T) {
+	svc, repo, revoker, _ := newMemberWithSessions(t)
+	owner := uint64(1)
+	member := &model.Member{ID: 204, Username: "sub_e", Status: "active",
+		OwnerUserID: &owner, IsSubAccount: true, PasswordHash: "h"}
+	repo.members[member.ID] = member
+
+	if err := svc.Delete(context.Background(), owner, false, member.ID); err != nil {
+		t.Fatalf("禁用成员失败: %v", err)
+	}
+	if repo.members[member.ID].Status != "disabled" {
+		t.Fatal("成员状态应为 disabled")
+	}
+	if revoker.revoked[member.ID] == 0 {
+		t.Fatal("禁用成员后应撤销其会话")
+	}
+}
+
+// TestUpdateStatusDisabledRevokesSessions 通过改状态禁用时同样撤会话。
+func TestUpdateStatusDisabledRevokesSessions(t *testing.T) {
+	svc, repo, revoker, _ := newMemberWithSessions(t)
+	owner := uint64(1)
+	member := &model.Member{ID: 205, Username: "sub_f", Status: "active",
+		OwnerUserID: &owner, IsSubAccount: true, PasswordHash: "h"}
+	repo.members[member.ID] = member
+
+	if _, err := svc.Update(context.Background(), owner, false, member.ID, dto.UpdateRequest{Status: "disabled"}); err != nil {
+		t.Fatalf("改状态失败: %v", err)
+	}
+	if revoker.revoked[member.ID] == 0 {
+		t.Fatal("由启用改为禁用时应撤销会话")
 	}
 }

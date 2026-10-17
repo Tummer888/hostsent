@@ -129,6 +129,11 @@ type grantInput struct {
 
 // grant 事务内完成「幂等检查 → 账户加锁 → 记流水 → 更新余额」。
 func (s *pointService) grant(ctx context.Context, in grantInput) (*model.PointTransaction, error) {
+	// 子账号不持有积分账户：用积分的永远是主账号（下单/续费走 EffectiveUserID），
+	// 给子账号发积分只会留下一个永远用不掉的孤立账户。
+	if err := s.rejectSubAccount(ctx, in.UserID); err != nil {
+		return nil, err
+	}
 	var result *model.PointTransaction
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if existing, err := s.repo.FindTxByBiz(tx, in.UserID, in.BizType, in.RefNo); err == nil && existing != nil {
@@ -540,4 +545,34 @@ func normalizePageSize(size int) int {
 		return 100
 	}
 	return size
+}
+
+// rejectSubAccount 确认 userID 不是子账号。
+//
+// point_accounts 是懒创建的（grant 时查不到就 EnsureAccount），所以只要有一条
+// 指向子账号的发放/调整调用，就会顺手给它建出积分账户。而用积分的地方
+// （下单/续费）都取 EffectiveUserID = 主账号，子账号的积分永远花不掉。
+// 只读 users 表一列，不引账号域模块，保持本服务「只写 point_* 表」的边界。
+func (s *pointService) rejectSubAccount(ctx context.Context, userID uint64) error {
+	if userID == 0 {
+		return nil
+	}
+	var row struct {
+		IsSubAccount bool `gorm:"column:is_sub_account"`
+	}
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Select("is_sub_account").
+		Where("id = ?", userID).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if row.IsSubAccount {
+		return ErrSubAccountPointDenied
+	}
+	return nil
 }

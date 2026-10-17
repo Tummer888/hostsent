@@ -140,6 +140,11 @@ type UserStats struct {
 	PurchasedCount  int64   `json:"purchased_count"`
 	// Deleted 已注销（软删除）用户数，供总览与回收站入口展示（doc104 §4）。
 	Deleted int64 `json:"deleted"`
+	// SubAccountTotal 子账号（成员）总数，仅统计未注销的。
+	//
+	// 单独成项而不并入 Total：子账号不是客户主体，上面所有主账号指标
+	// （Active/Disabled/TotalBalance/PurchasedCount）都排除它。
+	SubAccountTotal int64 `json:"sub_account_total"`
 }
 
 // OnlineUserRow / RecentLoginRow 是总览页「在线用户 / 最近登录用户」两张卡的
