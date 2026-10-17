@@ -30,4 +30,10 @@ var (
 	ErrAccountNotFound = errors.New("收款账户不存在")
 	// ErrBalanceInsufficient 余额不足。
 	ErrBalanceInsufficient = errors.New("余额不足")
+	// ErrOfflinePayMethodRequired 人工入账必须指定支付方式。
+	// 场外收款照样要标明"客户用什么方式付的"：退款去向（原路/退余额）据此判定，
+	// 而且台账上没有支付方式的收款无法参与任何渠道维度的核对。
+	ErrOfflinePayMethodRequired = errors.New("请选择支付方式")
+	// ErrOfflineAmountInvalid 人工入账金额非法。
+	ErrOfflineAmountInvalid = errors.New("入账金额必须大于 0")
 )

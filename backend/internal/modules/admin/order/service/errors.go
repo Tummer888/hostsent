@@ -31,4 +31,18 @@ var (
 	// ErrRefundChannelUnavailable 该订单没有渠道支付记录，不能选择原路退回
 	// （余额支付的订单资金本就在平台内，只能退回余额）。
 	ErrRefundChannelUnavailable = errors.New("该订单为余额支付，仅支持退回余额")
+	// ErrPayMethodInvalid 确认收款必须指定合法的支付方式
+	// （不能留空，也不能填 channel/online 这类"支付模式"而非"收款方式"）。
+	ErrPayMethodInvalid = errors.New("请选择有效的支付方式")
+	// ErrConfirmAmountInvalid 确认收款的实收金额非法。
+	ErrConfirmAmountInvalid = errors.New("实收金额必须大于 0")
+	// ErrPayTimeInvalid 到账时间格式非法（需 2006-01-02 15:04:05 或 RFC3339）。
+	ErrPayTimeInvalid = errors.New("到账时间格式不正确")
+	// ErrOfflinePaymentUnavailable 支付台账登记能力未配置，无法确认收款。
+	// 宁可报错也不静默放过：只改订单状态而账上查不到这笔钱，是财务事故。
+	ErrOfflinePaymentUnavailable = errors.New("支付台账登记能力未配置，无法确认收款")
+	// ErrBalanceDeductUnavailable 余额扣款能力未配置，无法按余额支付确认收款。
+	ErrBalanceDeductUnavailable = errors.New("余额扣款能力未配置，无法按余额支付确认收款")
+	// ErrInsufficientBalance 客户余额不足以完成本次收款（余额支付路径）。
+	ErrInsufficientBalance = errors.New("客户余额不足")
 )

@@ -167,6 +167,35 @@ func (h *OrderHandler) Activate(c *gin.Context) {
 	response.SuccessMessage(c, "success")
 }
 
+// ConfirmPayment godoc
+// @Summary 确认收款（场外收款人工入账）
+// @Description 待支付订单改为已支付：强制记录支付方式，登记支付台账并投递开通，可选发到账提醒
+// @Tags 订单管理-订单
+// @Security BearerAuth
+// @Param id path int true "订单 ID"
+// @Param request body dto.ConfirmPaymentRequest true "收款参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/orders/{id}/confirm-payment [post]
+func (h *OrderHandler) ConfirmPayment(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.ConfirmPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	result, err := h.orderService.ConfirmPayment(c.Request.Context(), id, req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, result)
+}
+
 // Stats godoc
 // @Summary 查询订单统计概览
 // @Tags 订单管理-订单

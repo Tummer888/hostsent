@@ -275,10 +275,13 @@ func (b *reconcileFindingNotifierBridge) NotifyReconcileFinding(
 		return nil
 	}
 	vars := map[string]string{
-		"instance_mark":  firstNonEmptyText(label.Name, label.InstanceID, fmt.Sprintf("实例 #%d", finding.InstanceID)),
-		"provider_name":  firstNonEmptyText(label.ProviderName, fmt.Sprintf("渠道 #%d", finding.ProviderID)),
-		"local_value":    finding.LocalValue,
-		"upstream_value": finding.UpstreamValue,
+		"instance_mark": firstNonEmptyText(label.Name, label.InstanceID, fmt.Sprintf("实例 #%d", finding.InstanceID)),
+		"provider_name": firstNonEmptyText(label.ProviderName, fmt.Sprintf("渠道 #%d", finding.ProviderID)),
+		// 状态类差异的两侧取值先翻成中文：台账存的是归一值/上游原文（active、Active），
+		// 直接进模板会写出"本地状态 active 与上游状态 Active 不一致"这种给机器看的句子。
+		// 价格与到期两类是金额/日期，不在映射表里，原样回显（ServiceStateLabel 的兜底）。
+		"local_value":    reconmodel.ServiceStateLabel(finding.LocalValue),
+		"upstream_value": reconmodel.ServiceStateLabel(finding.UpstreamValue),
 		"kind_name":      reconmodel.KindLabel(finding.Kind),
 	}
 	if finding.Delta != nil {

@@ -29,6 +29,18 @@ type OrderService interface {
 	GetByNo(ctx context.Context, paymentNo string) (*dto.OrderInfo, error)
 	// Confirm 后台人工确认到账（线下渠道）。
 	Confirm(ctx context.Context, id uint64, req dto.OrderConfirmRequest, operatorID uint64) (*dto.OrderInfo, error)
+	// RecordOfflinePayment 后台人工入账（场外收款登记）：为业务单补登一张「已收款」支付台账。
+	//
+	// 与 Confirm 的分工：Confirm 是给「客户已发起的支付单」确认到账；
+	// 本方法是客户没走收银台（对公转账/线下现金）时，直接补登一张已收款台账，
+	// 让这笔钱在支付台账里可查、可对账、退款时能定位资金来源。
+	// 幂等：同业务单已有已支付台账时直接返回既有单，不重复登记。
+	RecordOfflinePayment(ctx context.Context, req dto.OfflinePaymentRequest, userID uint64, bizType string, bizID uint64, bizNo string, amount float64, operatorID uint64) (*dto.OrderInfo, error)
+	// IsOfflinePaymentOrder 该业务单的已收款台账是否来自后台人工入账（origin=offline）。
+	//
+	// 退款侧据此分流：场外收款没有可调用的渠道退款接口，原路退回只能由财务线下汇款
+	// （返回 manual 让订单侧标记待汇款），**不能回落余额回补** —— 那会让客户拿到两份钱。
+	IsOfflinePaymentOrder(ctx context.Context, bizNo string) (bool, error)
 	// Close 关闭支付单。
 	Close(ctx context.Context, id uint64) (*dto.OrderInfo, error)
 	// CloseByBiz 关闭某业务单的全部未支付支付单（用户取消/超时关单时调用），返回关闭数量。
@@ -199,6 +211,113 @@ func (s *orderService) Confirm(ctx context.Context, id uint64, req dto.OrderConf
 		return nil, err
 	}
 	return s.infoWithChannelName(ctx, o, "")
+}
+
+// RecordOfflinePayment 后台人工入账（场外收款登记）。
+//
+// 这条链路与收银台预支付（Prepay）是并列的两条「支付台账来源」：
+// 客户没走收银台时，支付单行根本不存在，所以只能由后台补登，而不是确认已有的单。
+// 登记出来的支付单 origin=offline，与渠道回调单区分开 —— 原路退回时不能调渠道
+// 退款接口（没有渠道交易可退），渠道对账也不该把它算进去。
+//
+// 幂等：同业务单已存在已支付台账时直接返回既有单。重复点击不会产生第二笔收入，
+// 也避免同一订单出现两条 paid 台账（销售/对账口径会翻倍）。
+func (s *orderService) RecordOfflinePayment(
+	ctx context.Context,
+	req dto.OfflinePaymentRequest,
+	userID uint64, bizType string, bizID uint64, bizNo string, amount float64,
+	operatorID uint64,
+) (*dto.OrderInfo, error) {
+	if bizNo == "" || bizType == "" || userID == 0 {
+		return nil, ErrOrderNotFound
+	}
+	// 幂等前置：已有已支付台账直接复用（换渠道重复登记也走这里）。
+	if existing, err := s.orderRepo.FindPaidByBiz(ctx, bizType, bizNo); err == nil && existing != nil {
+		return s.infoWithChannelName(ctx, existing, "")
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	amountFen := yuanToFen(amount)
+	if amountFen <= 0 {
+		return nil, ErrOfflineAmountInvalid
+	}
+	payMethod := strings.TrimSpace(req.PayMethod)
+	if payMethod == "" {
+		return nil, ErrOfflinePayMethodRequired
+	}
+
+	now := time.Now()
+	order := &model.PaymentOrder{
+		PaymentNo:  genPaymentNo(),
+		UserID:     userID,
+		BizType:    bizType,
+		BizID:      bizID,
+		BizNo:      bizNo,
+		AmountFen:  amountFen,
+		Currency:   "CNY",
+		Status:     model.OrderStatusPaid,
+		ChannelTx:  strings.TrimSpace(req.EvidenceNo),
+		Subject:    defaultSubject(bizType),
+		PaidAt:     &now,
+		ExpireAt:   nil,
+		Origin:     model.OriginOffline,
+		OperatorID: operatorID,
+		Remark:     offlineRemark(req),
+	}
+	// 渠道实例：填了就按该渠道登记（客户确实走了这个渠道，只是没经过收银台）；
+	// 不填则留空，前端按「线下人工」展示 —— 这样即使平台没配任何渠道也能入账。
+	if code := strings.TrimSpace(req.ChannelCode); code != "" {
+		if ch, err := s.findChannelByCode(ctx, code); err == nil {
+			order.ChannelID = ch.ID
+			order.ChannelCode = ch.ChannelCode
+			order.ChannelType = ch.Type
+		}
+	}
+	if err := s.orderRepo.Create(ctx, order); err != nil {
+		return nil, err
+	}
+	// 入账钩子照常触发：订单侧据此置为已支付并投递开通。
+	// 钩子失败不回滚台账（钱确实收了），返回错误让运营看到并重试开通。
+	if s.paidHook != nil {
+		if err := s.paidHook(ctx, order); err != nil {
+			return nil, fmt.Errorf("入账成功但后续处理失败: %w", err)
+		}
+	}
+	return s.infoWithChannelName(ctx, order, "")
+}
+
+// IsOfflinePaymentOrder 该业务单的已收款台账是否来自后台人工入账（origin=offline）。
+func (s *orderService) IsOfflinePaymentOrder(ctx context.Context, bizNo string) (bool, error) {
+	if strings.TrimSpace(bizNo) == "" {
+		return false, nil
+	}
+	o, err := s.orderRepo.FindPaidByBiz(ctx, dto.BizTypeOrder, bizNo)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return o.Origin == model.OriginOffline, nil
+}
+
+// offlineRemark 组装人工入账备注：保留运营填写的说明，并补上登记人。
+// 场外收款是"人在系统外收了钱"，对账时第一个要问的就是"谁登记的"。
+func offlineRemark(req dto.OfflinePaymentRequest) string {
+	parts := make([]string, 0, 3)
+	if r := strings.TrimSpace(req.Remark); r != "" {
+		parts = append(parts, r)
+	}
+	parts = append(parts, "后台人工入账")
+	if name := strings.TrimSpace(req.OperatorName); name != "" {
+		parts = append(parts, "登记人:"+name)
+	}
+	out := strings.Join(parts, " | ")
+	// payment_orders.remark 是 varchar(255)，超长截断避免入库报错。
+	if len(out) > 255 {
+		out = out[:255]
+	}
+	return out
 }
 
 // markPaid 置为已支付并触发入账钩子（钩子失败仅记录，不阻断支付状态）。

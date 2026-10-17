@@ -215,8 +215,12 @@ type OrderInfo struct {
 	ExpireAt     string  `json:"expire_at"`
 	PaidAt       string  `json:"paid_at"`
 	Remark       string  `json:"remark"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	// Origin 支付单来源：'' 收银台 / 'offline' 后台人工入账。
+	// 前端据此区分展示（人工入账单不进渠道对账，原路退回走人工汇款）。
+	Origin     string `json:"origin"`
+	OperatorID uint64 `json:"operator_id"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 // OrderListResponse 支付单列表响应。
@@ -229,6 +233,28 @@ type OrderListResponse struct {
 type OrderConfirmRequest struct {
 	ChannelTx string `json:"channel_tx"`
 	Remark    string `json:"remark"`
+}
+
+// OfflinePaymentRequest 后台人工入账（场外收款登记）。
+//
+// 场景：客户没走收银台（对公转账/线下现金），钱已到公司账户，
+// 运营据实把收款登记进支付台账，业务单随之标记已支付。
+//
+// 与 OrderConfirmRequest 的分工：后者是「给客户已发起的支付单确认到账」，
+// 本请求是「支付单根本不存在，补登一张已收款台账」—— 场外收款没有渠道下单动作，
+// 不补登就意味着这笔钱在支付台账里查不到，原路退回也无法定位资金来源。
+type OfflinePaymentRequest struct {
+	// PayMethod 支付方式（必填）：客户实际用的收款渠道。
+	// 场外收款也必须标明渠道，否则退款去向（原路/退余额）无法判定。
+	PayMethod string `json:"pay_method"`
+	// ChannelCode 收款渠道实例编码（可空）：填了按该渠道实例登记，
+	// 空则登记为「线下人工」渠道（无渠道实例时仍要能入账）。
+	ChannelCode string `json:"channel_code"`
+	// EvidenceNo 收款凭证号（对公流水号/渠道交易号），可空。
+	EvidenceNo string `json:"evidence_no"`
+	Remark     string `json:"remark"`
+	// OperatorName 登记人姓名快照：写入台账备注，对账时可定位经手人。
+	OperatorName string `json:"-"`
 }
 
 // ---- 回调日志 ----

@@ -56,6 +56,9 @@ type paymentBundle struct {
 	// orderService 支付单能力：回填给用户中心订单（发起收银台支付、关单时同步关支付单）。
 	// 订单模块只声明自身需要的最小接口，这里传具体类型即可（Go 结构化满足）。
 	orderService payservice.OrderService
+	// preferenceService 用户支付方式偏好：下单时解析「默认支付方式」写进订单
+	// （pay_method），使订单与支付方式在下单那一刻即强绑定。
+	preferenceService payservice.PreferenceService
 }
 
 // buildPaymentBundle 装配支付中心：仓储 → 服务 → 处理器，并完成上下游钩子接线。
@@ -152,10 +155,23 @@ func buildPaymentBundle(
 	// 退款资金出口钩子（doc36 §3.2）：按退款去向分流。
 	//   channel：原路退回支付来源，有渠道支付记录则建渠道退款单并回传单号；
 	//   balance：直接回补余额（资金仍在平台内，消费口径不变）。
-	// 无渠道支付记录时无论何种模式都回落余额回补，与 doc34 F-03 对应。
-	orders.SetChannelRefundHook(func(ctx context.Context, orderID uint64, orderNo, orderRefundNo string, userID uint64, amount, fee float64, mode string) (string, error) {
-		channelRefundNo := ""
+	//
+	// 场外收款（origin=offline）是第三种情况：钱是客户打到公司账户的，
+	// 退款只能由财务线下汇回，**绝不能回落余额回补** —— 否则银行退一笔、余额再退一笔，
+	// 客户白拿一倍。返回 outcome=manual 由订单侧标记 channel_refund_status。
+	orders.SetChannelRefundHook(func(ctx context.Context, orderID uint64, orderNo, orderRefundNo string, userID uint64, amount, fee float64, mode string) (string, string, error) {
 		if mode == ordermodel.RefundModeChannel {
+			offline, oerr := orderSvc.IsOfflinePaymentOrder(ctx, orderNo)
+			if oerr != nil {
+				logger.Warn("payment: check offline payment failed",
+					zap.String("order_no", orderNo), zap.Error(oerr))
+			}
+			if offline {
+				logger.Info("payment: offline payment refund, waiting for manual remittance",
+					zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo),
+					zap.Float64("amount", amount))
+				return "", orderservice.RefundOutcomeManual, nil
+			}
 			info, err := refundSvc.CreateForOrder(ctx, orderRefundNo, orderNo, userID, amount)
 			if err != nil {
 				// 渠道不支持退款等异常：不阻断审核，也不让资金悬空 —— 回落余额回补，
@@ -169,7 +185,7 @@ func buildPaymentBundle(
 				logger.Info("payment: channel refund created",
 					zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo),
 					zap.Float64("amount", amount), zap.Float64("fee", fee))
-				return info.RefundNo, nil
+				return info.RefundNo, orderservice.RefundOutcomeChannel, nil
 			}
 			// info == nil：该订单无渠道支付记录（余额支付），同样回落余额回补。
 		}
@@ -185,7 +201,7 @@ func buildPaymentBundle(
 			logger.Warn("finance: refund balance credit failed",
 				zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo), zap.Error(werr))
 		}
-		return channelRefundNo, nil
+		return "", orderservice.RefundOutcomeBalance, nil
 	})
 
 	// 用户端收银台编排（建单 → 支付 → 回绑）。
@@ -208,6 +224,7 @@ func buildPaymentBundle(
 		userPaymentHandler: userPaymentHandler,
 		payoutService:      payoutSvc,
 		orderService:       orderSvc,
+		preferenceService:  prefSvc,
 	}
 }
 

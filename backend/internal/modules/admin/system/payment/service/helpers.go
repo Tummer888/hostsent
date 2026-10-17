@@ -244,6 +244,8 @@ func buildOrderInfo(o model.PaymentOrder, channelName string) dto.OrderInfo {
 		ExpireAt:     formatTime(o.ExpireAt),
 		PaidAt:       formatTime(o.PaidAt),
 		Remark:       o.Remark,
+		Origin:       o.Origin,
+		OperatorID:   o.OperatorID,
 		CreatedAt:    o.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    o.UpdatedAt.Format(time.RFC3339),
 	}

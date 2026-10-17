@@ -41,6 +41,13 @@ const (
 	ChannelRefundStatusPending string = "pending"
 	ChannelRefundStatusSuccess string = "success"
 	ChannelRefundStatusFailed  string = "failed"
+	// ChannelRefundStatusManual 待人工汇款：收款是场外人工入账（对公转账/线下现金，
+	// payment_orders.origin=offline），没有可调用的渠道退款接口，只能由财务线下汇回。
+	//
+	// 与 failed 的区别（资金口径相反，不可合并）：
+	//   failed = 本想走渠道但没建成单，钩子已回落余额回补 → 钱仍在平台内，账单不扣减；
+	//   manual = 确实要汇出平台，等财务执行 → 钱将流出，账单需扣减本金。
+	ChannelRefundStatusManual string = "manual"
 )
 
 // OrderRefund 退款单

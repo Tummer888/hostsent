@@ -129,6 +129,52 @@ type BatchRefundAuditRequest struct {
 	Remark string   `json:"remark"`
 }
 
+// ConfirmPaymentRequest 后台确认收款（场外收款人工入账）。
+//
+// 场景：客户没走线上收银台（对公转账/线下现金），钱已到公司账户，
+// 运营把待支付订单改为已支付，并把这笔收款登记进支付台账。
+type ConfirmPaymentRequest struct {
+	// PayMethod 支付方式（必填）：客户实际付款的方式。
+	// 必填而非可空：台账上没写支付方式的收款，退款时无法判定能不能原路退回。
+	PayMethod string `json:"pay_method" binding:"required"`
+	// PaidAmount 实收金额（元）：不填按订单应付。允许手填是因为对公转账常有
+	// 多付/少付/抹零的实际差异，登记必须与银行流水一致，而不是强行等于订单金额。
+	PaidAmount float64 `json:"paid_amount"`
+	// PayTime 到账时间（可选，2006-01-02 15:04:05）：不填取当前时间。
+	// 对公转账常"昨天到账、今天才登记"，按实际到账时间记账才对得上流水。
+	PayTime string `json:"pay_time"`
+	// EvidenceNo 收款凭证号（对公流水号/渠道交易号），可空。
+	EvidenceNo string `json:"evidence_no"`
+	// ChannelCode 收款渠道实例编码（可空）：填了按该渠道登记台账，
+	// 空则按「线下人工」登记（平台未配渠道时也要能入账）。
+	ChannelCode string `json:"channel_code"`
+	Remark      string `json:"remark"`
+	// NotifyChannels 到账提醒渠道：inbox / email / sms（可多选，空=不发提醒）。
+	// 客户看不到"支付成功"页面，需要运营主动告知；但触达客户必须显式勾选，
+	// 不能默认群发（否则每次入账都会给客户发一条通知）。
+	NotifyChannels []string `json:"notify_channels"`
+}
+
+// ConfirmPaymentResult 确认收款结果。
+type ConfirmPaymentResult struct {
+	Order OrderInfo `json:"order"`
+	// PaymentNo 登记出的支付台账单号（人工入账单，origin=offline）。
+	PaymentNo string `json:"payment_no"`
+	// Notified 实际发出的提醒渠道（去重后的合法值）。
+	Notified []string `json:"notified"`
+	// NotifySkipped 被跳过的渠道及原因（用户无邮箱/无手机号/模板未启用等）。
+	NotifySkipped map[string]string `json:"notify_skipped,omitempty"`
+	// ProvisionQueued 是否已投递开通任务（确认收款后自动进入开通）。
+	ProvisionQueued bool `json:"provision_queued"`
+}
+
+// NotifyChannel 取值（确认收款提醒渠道）。
+const (
+	NotifyChannelInbox = "inbox" // 站内信
+	NotifyChannelEmail = "email" // 邮件
+	NotifyChannelSMS   = "sms"   // 短信
+)
+
 // VerifyState 取值（读取期推导，不落库）
 const (
 	VerifyStatePending  = "pending"  // 待核验：开通成功（服务中）且未核验

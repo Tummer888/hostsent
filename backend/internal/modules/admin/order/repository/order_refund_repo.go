@@ -129,9 +129,11 @@ func (r *refundRepository) ExistsByOrder(ctx context.Context, orderID uint64) (b
 // SumChannelRefund 汇总账期内原路退回的本金与渠道扣点（doc36 §3.2）。
 //
 // 口径：
-//   - 只统计 refund_mode='channel' 且渠道退款已发起/成功的退款单；
+//   - 只统计 refund_mode='channel' 且资金确实要流出平台的退款单；
 //   - 未建渠道退款单（channel_refund_status='failed'）表示钩子已回落余额回补，
 //     资金未流出平台，不得扣减收入口径；
+//   - 场外收款的原路退回（channel_refund_status='manual'）要扣减：钱由财务线下汇回，
+//     虽还没汇出但必然流出，不扣会把收入算高（与 failed 的资金方向正好相反）；
 //   - 账期归属按审核通过时间 audited_at（未回填时回落 updated_at）；
 //   - 本金 = amount，扣点 = fee_amount；两者都从收入口径中扣减。
 func (r *refundRepository) SumChannelRefund(ctx context.Context, userID uint64, start, end *time.Time) (principal, fee float64, err error) {
@@ -143,7 +145,7 @@ func (r *refundRepository) SumChannelRefund(ctx context.Context, userID uint64, 
 	q := r.db.WithContext(ctx).Model(&model.OrderRefund{}).
 		Where("refund_mode = ? AND status IN ? AND channel_refund_status IN ?", model.RefundModeChannel,
 			[]string{model.RefundStatusApproved, model.RefundStatusDone},
-			[]string{model.ChannelRefundStatusPending, model.ChannelRefundStatusSuccess}).
+			[]string{model.ChannelRefundStatusPending, model.ChannelRefundStatusSuccess, model.ChannelRefundStatusManual}).
 		Select("COALESCE(SUM(amount), 0) AS principal, COALESCE(SUM(fee_amount), 0) AS fee")
 	if userID > 0 {
 		q = q.Where("user_id = ?", userID)

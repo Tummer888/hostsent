@@ -102,6 +102,17 @@ func writeError(err error) *apperrors.AppError {
 		errors.Is(err, service.ErrRefundModeInvalid),
 		errors.Is(err, service.ErrRefundFeeInvalid):
 		return apperrors.New(20003, err.Error())
+	// 确认收款（场外收款人工入账）：参数类错误与状态类错误分开，
+	// 前端据此决定是"改表单重试"还是"刷新订单"。
+	case errors.Is(err, service.ErrPayMethodInvalid),
+		errors.Is(err, service.ErrConfirmAmountInvalid),
+		errors.Is(err, service.ErrPayTimeInvalid):
+		return apperrors.New(20001, err.Error())
+	case errors.Is(err, service.ErrInsufficientBalance):
+		return apperrors.New(30001, err.Error())
+	case errors.Is(err, service.ErrOfflinePaymentUnavailable),
+		errors.Is(err, service.ErrBalanceDeductUnavailable):
+		return apperrors.New(50001, err.Error())
 	case errors.Is(err, service.ErrBatchEmpty),
 		errors.Is(err, service.ErrBatchTooLarge):
 		return apperrors.New(20001, err.Error())

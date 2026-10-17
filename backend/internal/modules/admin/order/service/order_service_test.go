@@ -124,6 +124,24 @@ func (r *fakeOrderRepo) MarkVerified(_ context.Context, id, operatorID uint64, o
 	o.VerifyRemark = remark
 	return 1, nil
 }
+
+// ConfirmPayment 模拟 CAS 确认收款：仅待支付订单生效，与真实仓储同语义。
+func (r *fakeOrderRepo) ConfirmPayment(_ context.Context, id uint64, payMethod string, paidAmount float64, payTime time.Time, operatorID uint64, remark string) (int64, error) {
+	o, ok := r.orders[id]
+	if !ok || o.Status != model.OrderStatusPending {
+		return 0, nil
+	}
+	o.Status = model.OrderStatusPaid
+	o.PayMethod = payMethod
+	o.PaidAmount = paidAmount
+	t := payTime
+	o.PayTime = &t
+	o.OperatorID = operatorID
+	if remark != "" {
+		o.Remark = remark
+	}
+	return 1, nil
+}
 func (r *fakeOrderRepo) SoftDelete(_ context.Context, id uint64, allowStatuses []string, at time.Time) (int64, error) {
 	o, ok := r.orders[id]
 	if !ok || o.DeletedAt != nil {

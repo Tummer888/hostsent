@@ -46,6 +46,10 @@ type OrderRepository interface {
 	// MarkVerified 条件核验（CAS）：仅当 verified_at 为空时写入核验人与时间，返回是否生效。
 	// 重复核验/并发核验只有一方算数，另一方得 0 行 —— 与状态迁移同一套「谁先谁生效」语义。
 	MarkVerified(ctx context.Context, id, operatorID uint64, operatorName, remark string, at time.Time) (int64, error)
+	// ConfirmPayment 条件确认收款（CAS）：仅当订单仍为待支付时才置为已支付并落地
+	// 支付方式/实收金额/到账时间/操作人，返回受影响行数。
+	// 与关单/取消并发时只有一方生效，避免人工入账把已作废的订单复活。
+	ConfirmPayment(ctx context.Context, id uint64, payMethod string, paidAmount float64, payTime time.Time, operatorID uint64, remark string) (int64, error)
 	// SoftDelete 条件软删除（CAS）：仅当当前状态在 allowStatuses 内才置 deleted_at。
 	// 订单是财务凭证，删除只做「从列表隐藏」的软删除，行与金额始终留在库里可审计。
 	SoftDelete(ctx context.Context, id uint64, allowStatuses []string, at time.Time) (int64, error)
@@ -316,6 +320,30 @@ func (r *orderRepository) MarkVerified(ctx context.Context, id, operatorID uint6
 			"verify_remark":    remark,
 			"updated_at":       time.Now(),
 		})
+	return res.RowsAffected, res.Error
+}
+
+// ConfirmPayment 条件确认收款（CAS）：仅待支付订单可被确认为已支付。
+//
+// 用一条带 status='pending' 守卫的 UPDATE 而不是「先读再 Save」：
+// 关单调度器与用户取消都会改同一行的状态，读改写会让"已被超时关掉的订单"
+// 被人工入账复活（时间差内两边都读到 pending）。受影响行数 0 即说明状态已变，
+// 由 service 层翻译成「订单状态不允许该操作」。
+func (r *orderRepository) ConfirmPayment(ctx context.Context, id uint64, payMethod string, paidAmount float64, payTime time.Time, operatorID uint64, remark string) (int64, error) {
+	updates := map[string]interface{}{
+		"status":      model.OrderStatusPaid,
+		"pay_method":  payMethod,
+		"paid_amount": paidAmount,
+		"pay_time":    payTime,
+		"operator_id": operatorID,
+		"updated_at":  time.Now(),
+	}
+	if remark != "" {
+		updates["remark"] = remark
+	}
+	res := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ? AND status = ? AND deleted_at IS NULL", id, model.OrderStatusPending).
+		Updates(updates)
 	return res.RowsAffected, res.Error
 }
 

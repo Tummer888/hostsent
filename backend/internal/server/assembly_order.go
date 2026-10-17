@@ -263,6 +263,13 @@ func (a *asm) buildOrder() {
 				order.PaidAmount = price
 				order.PayTime = &now
 			}
+			if order.PayMethod == "" {
+				// 仅创建不支付（payMode=create）：仍把「打算怎么付」写进订单，
+				// 使订单在下单那一刻就与支付方式绑定 —— 后台列表能看出客户用什么付，
+				// 场外收款走「确认收款」入账时也有默认值可预填。
+				// 留空按用户默认支付方式解析（用户中心偏好 > 平台默认渠道）。
+				order.PayMethod = a.resolveAdminOrderPayMethod(ctx, userID, req.PayMethod)
+			}
 			if err := a.orderRepo.Create(ctx, order); err != nil {
 				return nil, err
 			}

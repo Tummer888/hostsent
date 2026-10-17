@@ -72,6 +72,18 @@ type OrderService interface {
 	UserCreateRefund(ctx context.Context, userID, orderID uint64, req dto.UserRefundRequest) (*dto.UserRefundResult, error)
 	// RefundPolicyHint 订单可退性提示（uc/管理端详情展示是否给申请入口）。
 	RefundPolicyHint(ctx context.Context, order *model.Order) *dto.OrderRefundPolicyHint
+	// ConfirmPayment 后台确认收款（场外收款人工入账）：待支付 → 已支付，
+	// 强制记录支付方式与实收金额，登记支付台账并投递开通，可选发到账提醒。
+	ConfirmPayment(ctx context.Context, id uint64, req dto.ConfirmPaymentRequest, operatorID uint64, operatorName string) (*dto.ConfirmPaymentResult, error)
+	// SetOfflinePaymentRecorder 注入「补登支付台账」端口（装配层调用，支付中心实现）。
+	// 未注入时 ConfirmPayment 返回错误而不静默记账：钱收了却查不到台账是财务事故。
+	SetOfflinePaymentRecorder(r OfflinePaymentRecorder)
+	// SetPaymentNotifier 注入到账提醒发送端口（装配层调用，通知模块实现）。
+	// 未注入时跳过提醒（订单支付状态不受影响）。
+	SetPaymentNotifier(n PaymentNotifier)
+	// SetBalanceDeductor 注入余额扣款端口（装配层调用，财务账务核心实现）。
+	// 未注入时「余额支付」确认收款返回错误（不静默放过扣款）。
+	SetBalanceDeductor(d BalanceDeductor)
 	// 事后复核（免审核自动退款）
 	ReviewRefund(ctx context.Context, id uint64, operatorID uint64, operatorName, remark string) (*dto.RefundInfo, error)
 	// SetRefundPolicyMatcher 注入退款策略匹配（装配层调用）。
@@ -114,14 +126,32 @@ type OrderCashbackHook func(ctx context.Context, orderID uint64, orderNo string,
 // OrderRefundHook 退款审核通过后的返现冲减钩子：按退款额占实付比例冲减邀请人返现。
 type OrderRefundHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error
 
-// OrderChannelRefundHook 退款审核通过后的资金出口钩子（doc34 F-03 / doc35 §6.4 / doc36 §3.2）：
-//   - mode=channel：原路退回支付来源；有渠道支付记录时创建渠道退款单并把单号回传落库，
-//     无记录（余额支付）时由钩子实现回落为余额回补；
-//   - mode=balance：直接退回余额，不走渠道。
+// OrderChannelRefundHook 退款审核通过后的资金出口钩子（doc34 F-03 / doc35 §6.4 / doc36 §3.2）。
+//
+// 钩子实现按退款去向决定资金动作，并回传「资金实际怎么出去的」：
+//
+//	RefundOutcomeBalance 回补余额（余额支付，或渠道不可用回落）；
+//	RefundOutcomeChannel 已建渠道退款单，按渠道异步流出；
+//	RefundOutcomeManual  收款本身是场外人工入账 → 无渠道可退，等财务线下汇款。
+//
+// 为什么必须区分 manual 而不能沿用"建单失败就回落余额"：
+// 场外收款的钱是客户打到公司账户的，退款时若又回补平台余额，等于退了两份
+// （银行那笔 + 余额这笔），客户白拿一倍。manual 表示"钱要汇出去、但还没汇"，
+// 由财务按凭据执行，不进余额。
 //
 // 失败不影响退款审核结果，装配层负责记录日志并留待人工处理。
-// 返回 channelRefundNo 供退款单回填（无渠道退款时为空串）。
-type OrderChannelRefundHook func(ctx context.Context, orderID uint64, orderNo string, orderRefundNo string, userID uint64, amount, fee float64, mode string) (channelRefundNo string, err error)
+// channelRefundNo 供退款单回填（无渠道退款时为空串）。
+type OrderChannelRefundHook func(ctx context.Context, orderID uint64, orderNo string, orderRefundNo string, userID uint64, amount, fee float64, mode string) (channelRefundNo string, outcome string, err error)
+
+// 退款资金出口结果（OrderChannelRefundHook 的第二返回值）。
+const (
+	// RefundOutcomeBalance 资金回补到平台余额（钱仍在平台内）。
+	RefundOutcomeBalance string = "balance"
+	// RefundOutcomeChannel 已建渠道退款单，按渠道异步流出平台。
+	RefundOutcomeChannel string = "channel"
+	// RefundOutcomeManual 待财务线下汇款（场外收款的原路退回：无渠道接口可调）。
+	RefundOutcomeManual string = "manual"
+)
 
 // OrderInstanceRefundHook 退款审核通过后的「实例侧」钩子（doc61 §8 第 2 条）。
 //
@@ -137,6 +167,53 @@ type OrderInstanceRefundHook func(ctx context.Context, orderID uint64, orderNo s
 // 订单模块只依赖这一最小接口，避免与 uc/装配层形成反向依赖。
 type ProvisionQueue interface {
 	EnqueueProvision(ctx context.Context, order *model.Order, sourceMode string) error
+}
+
+// OfflinePaymentRecorder 场外收款台账登记端口（由支付中心实现，装配层注入）。
+//
+// 只声明订单域真正需要的方法（CONTRIBUTING §3：跨域走最小接口），
+// 参数用基础类型，避免订单模块反向 import 支付中心 dto。
+type OfflinePaymentRecorder interface {
+	// Record 补登一张「已收款」人工台账，返回台账单号与是否新建（false=命中幂等复用）。
+	Record(ctx context.Context, order *model.Order, req OfflinePaymentRecord) (*OfflinePaymentRecordResult, error)
+}
+
+// OfflinePaymentRecord 台账登记入参（订单域 → 支付中心的本地结构）。
+type OfflinePaymentRecord struct {
+	PayMethod    string  // 支付方式（客户实际付款方式）
+	PaidAmount   float64 // 实收金额（元）
+	PayTime      time.Time
+	EvidenceNo   string // 收款凭证号
+	ChannelCode  string // 收款渠道实例编码（可空）
+	Remark       string
+	OperatorID   uint64
+	OperatorName string
+}
+
+// OfflinePaymentRecordResult 台账登记结果。
+type OfflinePaymentRecordResult struct {
+	PaymentNo string // 支付台账单号
+	Created   bool   // 本次是否新建（false=已有台账，幂等复用）
+}
+
+// PaymentNotifier 到账提醒发送端口（由通知模块实现，装配层注入）。
+//
+// 只发「订单已收款」这一件事，且由人工入账操作人显式勾选渠道；
+// 传订单号而非常规通知事件参数，避免订单域理解通知模块的事件/模板模型。
+type PaymentNotifier interface {
+	// NotifyOrderPaid 发送订单收款提醒，返回实际发出的渠道与跳过原因（渠道 → 原因）。
+	NotifyOrderPaid(ctx context.Context, order *model.Order, channels []string) (notified []string, skipped map[string]string)
+}
+
+// BalanceDeductor 余额扣款端口（由财务账务核心实现，装配层注入）。
+//
+// 确认收款选「余额支付」时走这条真实扣款路径（与后台代客下单同口径）：
+// 余额支付的钱本就在平台内，确认收款必然意味着这笔钱从客户余额划走。
+// 只声明订单域用到的方法（CONTRIBUTING §3），金额与订单信息用基础类型传入。
+type BalanceDeductor interface {
+	// DeductOrderPayment 扣客户余额付订单款，幂等键为订单号（重复调用不重复扣）。
+	// 余额不足时返回 ErrInsufficientBalance（由装配层适配 admin 域错误变量）。
+	DeductOrderPayment(ctx context.Context, order *model.Order, amount float64, operatorID uint64) error
 }
 
 type orderService struct {
@@ -181,6 +258,13 @@ type orderService struct {
 	channelPaymentChecker func(ctx context.Context, orderNo string) bool
 	// refundAttachments 可选：退款凭据附件读取（退款详情展示）。
 	refundAttachments RefundAttachmentService
+	// offlinePayments 可选：场外收款台账登记（支付中心实现）。
+	// ConfirmPayment 未注入时直接报错：确认收款必须留下台账，不能只改订单状态。
+	offlinePayments OfflinePaymentRecorder
+	// balanceDeductor 可选：确认收款选「余额支付」时的真实扣款（财务账务核心实现）。
+	balanceDeductor BalanceDeductor
+	// notifier 可选：到账提醒发送（通知模块实现）。为 nil 时跳过提醒。
+	notifier PaymentNotifier
 	// logger 可选日志。
 	logger *zap.Logger
 }
@@ -224,6 +308,17 @@ func (s *orderService) SetChannelPaymentChecker(fn func(ctx context.Context, ord
 func (s *orderService) SetRefundAttachmentReader(svc RefundAttachmentService) {
 	s.refundAttachments = svc
 }
+
+// SetOfflinePaymentRecorder 注入场外收款台账登记（装配层调用，支付中心实现）。
+func (s *orderService) SetOfflinePaymentRecorder(r OfflinePaymentRecorder) {
+	s.offlinePayments = r
+}
+
+// SetPaymentNotifier 注入到账提醒发送（装配层调用，通知模块实现）。
+func (s *orderService) SetPaymentNotifier(n PaymentNotifier) { s.notifier = n }
+
+// SetBalanceDeductor 注入余额扣款（装配层调用，财务账务核心实现）。
+func (s *orderService) SetBalanceDeductor(d BalanceDeductor) { s.balanceDeductor = d }
 
 // SetLogger 注入日志器（装配层调用）。
 func (s *orderService) SetLogger(l *zap.Logger) { s.logger = l }
@@ -991,17 +1086,22 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 	// 失败不回滚审核结果：支付中心留存退款单与失败原因，由财务人工重试或线下处理。
 	if s.channelRefundHook != nil {
 		if order, err := s.orderRepo.FindByID(ctx, refund.OrderID); err == nil {
-			channelNo, herr := s.channelRefundHook(ctx, order.ID, order.OrderNo, refund.RefundNo,
+			channelNo, outcome, herr := s.channelRefundHook(ctx, order.ID, order.OrderNo, refund.RefundNo,
 				order.UserID, refund.Amount, refund.FeeAmount, refund.RefundMode)
 			refund.ChannelRefundNo = channelNo
 			switch {
-			case herr == nil && channelNo != "":
+			case herr == nil && outcome == RefundOutcomeChannel && channelNo != "":
 				// 渠道退款单已建：资金将按渠道异步流出，账单侧据此扣减口径。
 				refund.ChannelRefundStatus = model.ChannelRefundStatusPending
+			case herr == nil && outcome == RefundOutcomeManual:
+				// 场外收款的原路退回：没有渠道接口可调，钱由财务线下汇回，不进余额。
+				// 标 manual 而非 failed —— 账单口径按「资金将流出」扣减本金，
+				// 且运营在退款详情能看到"待人工汇款"，不会以为已经退完了。
+				refund.ChannelRefundStatus = model.ChannelRefundStatusManual
 			case refund.RefundMode == model.RefundModeChannel:
 				// 意图原路退回但未能建渠道退款单（无渠道支付记录 / 渠道不支持 / 渠道缺失）：
 				// 钩子实现已回落余额回补，资金并未流出平台，标记 failed。
-				// 账单口径只统计 pending/success，故不会误扣本金与扣点。
+				// 账单口径只统计 pending/success/manual，故不会误扣本金与扣点。
 				refund.ChannelRefundStatus = model.ChannelRefundStatusFailed
 			}
 			_ = s.refundRepo.Update(ctx, refund)

@@ -28,6 +28,8 @@ func registerAdminOrderRoutes(v1 *gin.RouterGroup, app *App) {
 		orderGroup.POST("/:id/refund", app.perm("order:refund"), app.orderHandler.CreateRefund)
 		orderGroup.POST("/:id/activate", app.perm("order:activate"), app.orderHandler.Activate)
 		orderGroup.POST("/:id/verify", app.perm("order:verify"), app.orderHandler.Verify)
+		// 确认收款（场外收款人工入账）：资金动作，独立权限码不与「备注/核验」混用。
+		orderGroup.POST("/:id/confirm-payment", app.perm("order:confirm"), app.orderHandler.ConfirmPayment)
 	}
 	ticketGroup := v1.Group("/tickets")
 	ticketGroup.Use(app.adminAuth())

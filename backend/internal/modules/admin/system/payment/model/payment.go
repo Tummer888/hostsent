@@ -40,6 +40,19 @@ const (
 	BizTypeBill     string = "bill"     // 账单支付
 )
 
+// 支付单来源（payment_orders.origin）。
+//
+// 场外收款（对公转账/线下现金等）由后台人工入账，钱没有经过任何渠道接口；
+// 这类支付单必须与「渠道回调产生」的支付单区分开：
+//   - 原路退回时不能调渠道退款接口（没有可退的渠道交易），只能人工汇款并留凭据；
+//   - 对账只认渠道单，人工入账单参与渠道对账会永远对不平。
+const (
+	// OriginCheckout 收银台（渠道接口下单，回调确认）。
+	OriginCheckout string = ""
+	// OriginOffline 后台人工入账（场外收款登记）。
+	OriginOffline string = "offline"
+)
+
 // 退款状态
 const (
 	RefundStatusPending  string = "pending"
@@ -152,8 +165,14 @@ type PaymentOrder struct {
 	ExpireAt  *time.Time `gorm:"column:expire_at"`
 	PaidAt    *time.Time `gorm:"column:paid_at"`
 	Remark    string     `gorm:"size:255"`
-	CreatedAt time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt time.Time  `gorm:"autoUpdateTime"`
+	// Origin 支付单来源：'' 收银台 / 'offline' 后台人工入账（场外收款）。
+	// 原路退回与渠道对账据此分流，详见 OriginCheckout/OriginOffline 注释。
+	Origin string `gorm:"size:16;not null;default:'';index"`
+	// OperatorID 人工入账的操作人（admins.id）；渠道单为 0。
+	// 场外收款是"人在系统外收了钱"，谁登记必须可追（钱对不上时第一个要问的人）。
+	OperatorID uint64    `gorm:"column:operator_id;not null;default:0"`
+	CreatedAt  time.Time `gorm:"autoCreateTime"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
 }
 
 func (PaymentOrder) TableName() string { return "payment_orders" }
