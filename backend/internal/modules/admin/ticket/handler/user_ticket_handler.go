@@ -92,7 +92,13 @@ func (h *UserTicketHandler) Get(c *gin.Context) {
 // @Success 200 {object} dto.TicketDetail "成功"
 // @Router /api/v1/uc/support/tickets [post]
 func (h *UserTicketHandler) Create(c *gin.Context) {
-	// 提交人 = 真实操作人（P4-05）：子账号提交的工单记在其本人名下，主账号按归属可查。
+	// 归属 = 主账号（校验关联订单/实例与分类前置条件），提交人 = 真实操作人（P4-05）。
+	// 两者必须分开：只用操作人会让子账号关联不上主账号的资源（实测报「不属于当前账号」）。
+	accountID, _, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
 	actorID, username, ok := currentActorID(c)
 	if !ok {
 		unauthorized(c)
@@ -103,7 +109,7 @@ func (h *UserTicketHandler) Create(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	resp, err := h.ticketService.Create(c.Request.Context(), actorID, username, req)
+	resp, err := h.ticketService.Create(c.Request.Context(), accountID, actorID, username, req)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return

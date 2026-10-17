@@ -39,11 +39,15 @@ func liveInstanceDSN() string {
 // StartInstance，裸 append 在竞态下会丢写 —— 那会让"上游被调用几次"的断言
 // 得到假阳性（实测：非原子的抢占实现也能通过用例）。
 type fakeControlProvider struct {
-	started    []string
-	stopped    []string
-	suspended  []string
-	terminated []string
-	failStart  bool
+	started   []string
+	stopped   []string
+	suspended []string
+	// suspendReasons 逐次记录暂停原因：面板侧的原因会被归一成动作码
+	// （魔方云 suspend 的 type=due/traffic/other），分类选「到期未续费」
+	// 却送出兜底文案时，面板只能显示"其他" —— 用它钉住传下去的是什么。
+	suspendReasons []string
+	terminated     []string
+	failStart      bool
 	// getStatus 回源时上游报的电源状态（空 = running）。
 	// 用例借此模拟"指令已下发但上游还没转过去"的中间窗口。
 	getStatus string
@@ -93,8 +97,9 @@ func (f *fakeControlProvider) RestartInstance(_ context.Context, _ string) error
 func (f *fakeControlProvider) VNC(context.Context, string) (upstream.VNCResult, error) {
 	return upstream.VNCResult{}, nil
 }
-func (f *fakeControlProvider) SuspendInstance(_ context.Context, id, _ string) error {
+func (f *fakeControlProvider) SuspendInstance(_ context.Context, id, reason string) error {
 	f.suspended = append(f.suspended, id)
+	f.suspendReasons = append(f.suspendReasons, reason)
 	return nil
 }
 func (f *fakeControlProvider) UnsuspendInstance(_ context.Context, _ string) error { return nil }
@@ -971,5 +976,67 @@ func TestLivePurgeRequiresTerminalState(t *testing.T) {
 	db.Raw("SELECT count(*) FROM instance_operations WHERE instance_id = ?", runningID).Scan(&opsAfter)
 	if opsAfter != 0 {
 		t.Fatalf("流水应随行一起清除，实际残留 %d 条（会成为指向不存在实例的孤儿行）", opsAfter)
+	}
+}
+
+// TestLiveSuspendSendsClassificationToUpstream 暂停原因要按分类送到上游，而不是只落审计。
+//
+// 用户口径（自营链路权威模型）："到期了就向魔方云发送暂停" —— 面板侧看到的原因
+// 应当能对上账期事实。魔方云 suspend 接口的 type 是机器可读动作码
+// （due/traffic/other），适配器靠关键词归一；若我方只把管理员随手写的备注
+// （或"管理员暂停"兜底文案）送过去，分类明明选了「到期未续费」，
+// 面板上也只会显示"其他原因"，运营在面板侧核对时与本地账期对不上。
+//
+// 因此：没写自由说明时，下发给上游的原因必须由分类驱动（到期→含"到期"、
+// 违规→含"违规"）；写了说明则用说明（信息更全）。
+//
+//	go test -tags live ./internal/modules/admin/instance/service/
+func TestLiveSuspendSendsClassificationToUpstream(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+
+	cases := []struct {
+		name        string
+		reasonClass string
+		reason      string
+		wantContain string
+		wantAbsent  string
+	}{
+		{"到期分类 + 无说明 → 由分类给文案", pkgmodel.SuspendReasonExpired, "", "到期", "管理员暂停"},
+		// 违规分类**必须有说明**（既有规则：不写事后没人知道违的是哪条），
+		// 所以这里验证的是"说明被原样送到上游"。
+		{"违规分类 + 带说明 → 说明送到上游", pkgmodel.SuspendReasonViolation, "违规使用：对外发送垃圾邮件", "违规使用", "管理员暂停"},
+		{"手动分类 + 无说明 → 兜底文案", pkgmodel.SuspendReasonManual, "", "管理员暂停", ""},
+		{"有说明 → 用说明（信息更全）", pkgmodel.SuspendReasonExpired, "客户申请延期未获批", "客户申请延期未获批", "到期"},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeControlProvider{}
+			s := newOpsService(t, db, fake)
+			mark := fmt.Sprintf("p21-suspend-%d-%d", time.Now().UnixNano()%1e6, i)
+			id := createOpsInstance(t, db, mark, "running", 0)
+			if err := db.Exec(`UPDATE instances SET provider_instance_id = ?, expire_at = now() + interval '30 day' WHERE id = ?`,
+				mark, id).Error; err != nil {
+				t.Fatalf("置为已开通实例失败: %v", err)
+			}
+			if err := s.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{
+				State: "suspended", ReasonClass: tc.reasonClass, Reason: tc.reason,
+			}); err != nil {
+				t.Fatalf("暂停失败: %v", err)
+			}
+			if len(fake.suspendReasons) != 1 {
+				t.Fatalf("应下发一次上游暂停，实际 %d 次", len(fake.suspendReasons))
+			}
+			got := fake.suspendReasons[0]
+			if tc.wantContain != "" && !strings.Contains(got, tc.wantContain) {
+				t.Errorf("下发给上游的原因 %q 应含 %q —— 否则面板侧归不成对应动作码", got, tc.wantContain)
+			}
+			if tc.wantAbsent != "" && strings.Contains(got, tc.wantAbsent) {
+				t.Errorf("下发给上游的原因 %q 不应含兜底文案 %q", got, tc.wantAbsent)
+			}
+		})
 	}
 }

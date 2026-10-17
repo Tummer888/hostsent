@@ -98,12 +98,19 @@
                   >
                 </div>
               </div>
-              <t-button theme="primary" size="small" :loading="renewingId === item.id" @click="handleRenew(item)">
+              <t-button
+                theme="primary"
+                size="small"
+                :disabled="!canRenew"
+                :loading="renewingId === item.id"
+                @click="handleRenew(item)"
+              >
                 立即续费
               </t-button>
               <t-switch
                 :value="item.auto_renew"
                 size="small"
+                :disabled="!canRenew"
                 :label="['自动续费', '自动续费']"
                 @change="(val: boolean) => handleToggleAuto(item, val)"
               />
@@ -216,8 +223,17 @@ import {
   type UserInstanceRenewalItem,
 } from '@/api/lifecycle'
 import { getBalance } from '@/api/finance'
+import { useMemberStore } from '@/store/modules/member'
 
 defineOptions({ name: 'UserRenewals' })
+
+const memberStore = useMemberStore()
+/**
+ * 续费是「钱从账号出去」的写操作，后端 POST /instances/:id/renew 与
+ * PUT /instances/:id/auto-renew 都要求 order:create。只有 order:view 的子账号
+ * 可以进来看续费清单，但按钮必须禁用，否则点了才 403。
+ */
+const canRenew = computed(() => memberStore.has('order:create'))
 
 const loading = ref(false)
 const instances = ref<UserInstanceRenewalItem[]>([])

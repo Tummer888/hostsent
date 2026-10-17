@@ -16,8 +16,8 @@
       <div class="page-header__actions">
         <t-button variant="outline" @click="router.push('/order')">返回列表</t-button>
         <template v-if="isPending">
-          <t-button variant="outline" :loading="cancelling" @click="confirmCancel">取消订单</t-button>
-          <t-button theme="primary" @click="cashierVisible = true">去支付</t-button>
+          <t-button v-if="canCancelOrder" variant="outline" :loading="cancelling" @click="confirmCancel">取消订单</t-button>
+          <t-button v-if="canPayOrder" theme="primary" @click="cashierVisible = true">去支付</t-button>
         </template>
         <t-button v-else-if="order" variant="outline" :loading="provisioning" @click="refreshProvision">
           刷新开通状态
@@ -216,12 +216,14 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { OrderIcon } from 'tdesign-icons-vue-next'
 
 import { cancelOrder, getOrderDetail, payOrder, requestRefund, type OrderInfo } from '@/api/shop'
+import { useMemberStore } from '@/store/modules/member'
 import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 
 defineOptions({ name: 'OrderDetail' })
 
 const route = useRoute()
 const router = useRouter()
+const memberStore = useMemberStore()
 
 const order = ref<OrderInfo | null>(null)
 const loading = ref(false)
@@ -255,7 +257,20 @@ const refundForm = reactive<{ refund_mode: string; reason: string; reasonPreset:
   reasonPreset: '',
 })
 
-const canRequestRefund = computed(() => Boolean(order.value?.refund_hint?.refundable))
+/**
+ * 可退款 = 后端退款策略通过 **且** 当前账号有权发起。
+ *
+ * 后端 /orders/:id/refund 同时要求 order:create 与「非子账号」（rejectSub）：
+ * 退款是钱回到主账号账户的动作，子账号不该有入口。仅看 refund_hint 会
+ * 让子账号看到必然 403 的按钮。
+ */
+const canRequestRefund = computed(
+  () => Boolean(order.value?.refund_hint?.refundable) && memberStore.has('order:create') && !memberStore.isSub,
+)
+/** 取消订单：后端要求 order:create。 */
+const canCancelOrder = computed(() => memberStore.has('order:create'))
+/** 支付订单：后端要求 order:create 且拒绝子账号（余额在主账号名下）。 */
+const canPayOrder = computed(() => memberStore.has('order:create') && !memberStore.isSub)
 
 // 剩余时限提示：窗口只剩不到 2 小时时用醒目色，避免客户点进来才发现已过期。
 const refundWindowMessage = computed(() => {

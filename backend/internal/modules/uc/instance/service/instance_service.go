@@ -1325,6 +1325,9 @@ func powerStateOf(it *model.Instance) string {
 		return "on"
 	case string(pkgmodel.InstanceStatusStopped):
 		return "off"
+	case string(pkgmodel.InstanceStatusRestarting):
+		// 重启中机器仍在通电（面板 wait_reboot/task）：报 off 会让客户以为它已关机。
+		return "on"
 	default:
 		return "unknown"
 	}
@@ -1333,8 +1336,8 @@ func powerStateOf(it *model.Instance) string {
 // serviceStateOf 计算**账期/服务维度**（与电源无关，客户侧副本）。
 //
 // 判据（与运维台同口径，用户第十九轮修订）：服务中 = 未到期 且 未被暂停。
-// 判据刻意不看 status —— 一台关机但未到期的实例，服务维度仍是 active
-// （服务在有效期内，只是机器没开）。
+// 判据刻意不看 status 的**电源取值** —— 一台关机但未到期的实例，服务维度仍是 active
+// （服务在有效期内，只是机器没开）。唯一例外是 status=deleted：机器已不存在。
 func serviceStateOf(it *model.Instance, expireState string, daysLeft int) string {
 	if it == nil {
 		return "active"
@@ -1352,6 +1355,11 @@ func serviceStateOf(it *model.Instance, expireState string, daysLeft int) string
 			return "suspended_violation"
 		}
 		return "suspended"
+	}
+	// 面板侧删除（同步只落 status、不动阶段）：客户侧同样要按终态显示，
+	// 否则机器已经没了、这里还会因为账期未到而显示「服务中」。
+	if it.Status == string(pkgmodel.InstanceStatusDeleted) {
+		return "destroyed"
 	}
 	// 占位行（尚未开通）不参与账期判定：没有交付物就没有"服务中"。
 	if it.ProviderInstanceID == "" {

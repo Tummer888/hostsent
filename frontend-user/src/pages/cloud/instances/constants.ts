@@ -10,6 +10,8 @@ export const instanceStatusLabels: Record<string, string> = {
   running: '运行中',
   stopped: '已关机',
   creating: '创建中',
+  // restarting 由 dcimcloud 的 wait_reboot/task 映射而来：机器仍在通电重启。
+  restarting: '重启中',
   error: '异常',
   deleting: '删除中',
   deleted: '已销毁',
@@ -172,9 +174,9 @@ export function powerStateView(input: {
   const label = instanceStatusLabels[input.status] || input.status || '未知'
   let theme = 'default'
   if (input.status === 'running') theme = 'success'
-  else if (input.status === 'creating') theme = 'warning'
+  else if (input.status === 'creating' || input.status === 'restarting') theme = 'warning'
   else if (input.status === 'error') theme = 'danger'
-  return { label, theme, detail: '', spinning: input.status === 'creating' }
+  return { label, theme, detail: '', spinning: input.status === 'creating' || input.status === 'restarting' }
 }
 
 /**
@@ -183,6 +185,7 @@ export function powerStateView(input: {
  * 关着机但没到期，这里仍是「服务中」：服务在有效期内，只是机器没开。
  */
 export function serviceStateView(input: {
+  status?: string
   lifecycle_stage?: string
   expire_state?: string
   service_state?: string
@@ -195,6 +198,11 @@ export function serviceStateView(input: {
   // 已取消：订单未付款超时/作废 —— 这台机器从未开通。
   if (stage === 'cancelled') {
     return { label: '已取消', theme: 'default', detail: '订单未支付或已作废，实例未开通' }
+  }
+  // 平台侧已删除（同步只落 status、不改阶段）：机器已不存在，服务随之终结。
+  // 只认 deleted —— 关机（stopped）是电源维度，不能算成服务终止。
+  if (input.status === 'deleted') {
+    return { label: '服务已终止', theme: 'default', detail: '实例已由平台回收，如有疑问请联系客服' }
   }
   // 违规暂停必须先于"到期暂停"判断：前者续费解决不了，要走客服处理。
   if (input.service_state === 'suspended_violation') {

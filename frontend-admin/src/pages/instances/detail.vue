@@ -2142,6 +2142,7 @@ const headlinePower = computed(() =>
 
 const headlineService = computed(() =>
   serviceStateView({
+    status: instanceData.value?.status,
     lifecycle_stage: instanceData.value?.lifecycle_stage,
     expire_state: instanceData.value?.expire_state,
     service_state: instanceData.value?.service_state,

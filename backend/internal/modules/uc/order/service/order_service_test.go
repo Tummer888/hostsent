@@ -633,6 +633,7 @@ func (f *fakeExpireOrderService) SetPendingInstanceReleaser(func(context.Context
 func (f *fakeExpireOrderService) SetLogger(*zap.Logger)                  {}
 func (f *fakeExpireOrderService) SetOptionLabelResolver(optionLabelPort) {}
 func (f *fakeExpireOrderService) SetRefundPort(refundPort)               {}
+func (f *fakeExpireOrderService) SetPayMethodResolver(payMethodResolver) {}
 func (f *fakeExpireOrderService) RequestRefund(context.Context, uint64, uint64, dto.UserRefundRequest) (*dto.UserRefundResult, error) {
 	return nil, nil
 }

@@ -66,7 +66,9 @@ type TicketService interface {
 	// —— 用户端 ——
 	UserList(ctx context.Context, userID uint64, page, pageSize int) (*dto.TicketListResponse, error)
 	UserFindByID(ctx context.Context, userID, id uint64) (*dto.TicketDetail, error)
-	Create(ctx context.Context, userID uint64, username string, req dto.TicketCreateRequest) (*dto.TicketDetail, error)
+	// Create 提交工单。accountID 是数据归属账号（子账号提交时为其主账号，用来校验
+	// 关联订单/实例与分类前置条件），actorID 是真实提交人（落在 tickets.user_id）。
+	Create(ctx context.Context, accountID, actorID uint64, username string, req dto.TicketCreateRequest) (*dto.TicketDetail, error)
 	UserReply(ctx context.Context, accountID, actorID uint64, username string, id uint64, req dto.TicketReplyRequest) (*dto.TicketDetail, error)
 	Cancel(ctx context.Context, userID, id uint64) (*dto.TicketDetail, error)
 	// AccountUserIDs 返回账号家族 ID（主账号 + 子账号），用户端附件鉴权用。
@@ -548,9 +550,14 @@ func (s *ticketService) belongsToAccount(ctx context.Context, accountID, ticketU
 	return false
 }
 
+// UserList 用户端工单列表：按**账号家族**取值（主账号能看到自己与全部成员提交的工单，
+// 成员也能看到该账号下的全部工单）。
+//
+// 只传 UserIDs 而不传 UserID：仓储里两者是 AND 关系，同时传等于
+// `user_id = 主账号 AND user_id IN (主账号, 成员…)`，成员提交的工单会被抹掉 ——
+// 实测主账号与子账号看到的列表都为空。UserIDs 已是账号家族全集，语义完备。
 func (s *ticketService) UserList(ctx context.Context, userID uint64, page, pageSize int) (*dto.TicketListResponse, error) {
 	query := dto.TicketListQuery{
-		UserID:   userID,
 		UserIDs:  s.accountUserIDs(ctx, userID),
 		Page:     page,
 		PageSize: pageSize,
@@ -576,7 +583,12 @@ func (s *ticketService) UserFindByID(ctx context.Context, userID, id uint64) (*d
 }
 
 // Create 用户提交工单：校验分类前置条件（S2）、按分类部门派单、落操作日志、绑定附件。
-func (s *ticketService) Create(ctx context.Context, userID uint64, username string, req dto.TicketCreateRequest) (*dto.TicketDetail, error) {
+//
+// accountID 与 actorID 必须分开（P4-04/P4-05）：归属校验要按**主账号**展开账号家族，
+// 提交人记**真实操作人**。此前两者同传操作人 ID，子账号提交时 accountUserIDs(子账号)
+// 只返回它自己，于是主账号的订单/实例全被判成「不属于当前账号」——
+// 实测子账号无法就主账号机器报障（technical/billing 分类都要求绑定资源）。
+func (s *ticketService) Create(ctx context.Context, accountID, actorID uint64, username string, req dto.TicketCreateRequest) (*dto.TicketDetail, error) {
 	priority := req.Priority
 	if priority == "" {
 		priority = model.PriorityMedium
@@ -594,14 +606,14 @@ func (s *ticketService) Create(ctx context.Context, userID uint64, username stri
 	if category.Status != model.CategoryStatusActive {
 		return nil, ErrCategoryNotFound
 	}
-	userIDs := s.accountUserIDs(ctx, userID)
+	userIDs := s.accountUserIDs(ctx, accountID)
 	if err := s.checkPreconditions(ctx, *category, userIDs, req); err != nil {
 		return nil, err
 	}
 
 	item := &model.Ticket{
 		TicketNo:     genTicketNo(),
-		UserID:       userID,
+		UserID:       actorID,
 		Title:        req.Title,
 		Description:  req.Description,
 		Category:     category.Code,
@@ -624,11 +636,11 @@ func (s *ticketService) Create(ctx context.Context, userID uint64, username stri
 	if err := s.bindAttachments(ctx, item.ID, req.AttachmentIDs); err != nil {
 		return nil, err
 	}
-	s.logAction(ctx, item.ID, userID, username, model.LogActionCreate, "", item.TicketNo, "")
+	s.logAction(ctx, item.ID, actorID, username, model.LogActionCreate, "", item.TicketNo, "")
 	if item.AssignedTo > 0 {
 		s.notifyAssign(ctx, *item)
 	}
-	return s.buildDetail(ctx, *item, detailViewer{accountID: userID})
+	return s.buildDetail(ctx, *item, detailViewer{accountID: accountID})
 }
 
 // checkPreconditions 按分类开关校验提交前置条件（S2）。

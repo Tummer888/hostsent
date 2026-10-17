@@ -112,6 +112,15 @@ type CreateRequest struct {
 	Cycle string `json:"cycle"`
 	// PayMode 支付方式：balance（默认）/ channel。空值按 balance 处理，保证存量调用方行为不变。
 	PayMode string `json:"pay_mode"`
+	// PayMethod 具体收款方式（alipay/wechat/balance/manual 等）：**下单即写入订单**，
+	// 使「订单 ↔ 支付方式」强绑定 —— 待支付订单在后台列表里就能看出客户打算用什么付，
+	// 场外收款人工入账时也能据此预填。
+	//
+	// 与 PayMode 的分工：PayMode 决定「余额支付还是走收银台」这条流程分支，
+	// PayMethod 记录「实际用什么收的钱」。留空时按用户默认支付方式解析
+	// （用户中心设置的默认渠道 > 平台默认渠道 > 余额）。
+	// 到账后一律以实际收款方式覆盖（渠道回调 / 人工入账选择）。
+	PayMethod string `json:"pay_method"`
 	// ConfigSelections 客户选配项选择（T4.5）：配置项参数名 → 选中取值
 	// （如 {"cpu":"4","os":"12","ip_num":"2"}）。留空表示全部按默认值。
 	ConfigSelections map[string]string `json:"config_selections"`

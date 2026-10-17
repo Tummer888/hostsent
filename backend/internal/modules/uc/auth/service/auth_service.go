@@ -256,6 +256,21 @@ func (s *authService) checkBlacklist(ctx context.Context, attempt loginAttempt) 
 	return err
 }
 
+// ownerUsableForSub 判断子账号能否登录：主账号必须存在且为 active（设计 §5.7-5）。
+//
+// 主账号是付款主体，它被禁用/注销时其下成员不该再拿到新令牌。主账号自身、
+// 以及历史遗留 owner_user_id 为空的账号一律放行（按主账号处理）。
+func (s *authService) ownerUsableForSub(ctx context.Context, user model.User) bool {
+	if !user.IsSubAccount || user.OwnerUserID == nil || *user.OwnerUserID == 0 {
+		return true
+	}
+	owner, err := s.repo.FindByID(ctx, *user.OwnerUserID)
+	if err != nil || owner == nil {
+		return false
+	}
+	return owner.Status == "active"
+}
+
 // loginByPassword 账号密码登录。
 func (s *authService) loginByPassword(ctx context.Context, req dto.LoginRequest, attempt loginAttempt) (*dto.LoginResponse, error) {
 	account := strings.TrimSpace(req.Username)
@@ -290,6 +305,10 @@ func (s *authService) loginByPassword(ctx context.Context, req dto.LoginRequest,
 
 	if user.Status != "active" {
 		s.failLogin(ctx, attempt, "disabled")
+		return nil, security.ErrLoginDisabled
+	}
+	if !s.ownerUsableForSub(ctx, *user) {
+		s.failLogin(ctx, attempt, "owner_disabled")
 		return nil, security.ErrLoginDisabled
 	}
 
@@ -357,6 +376,10 @@ func (s *authService) loginByCode(ctx context.Context, loginType string, req dto
 	attempt.UserID = user.ID
 	if user.Status != "active" {
 		s.failLogin(ctx, attempt, "disabled")
+		return nil, security.ErrLoginDisabled
+	}
+	if !s.ownerUsableForSub(ctx, *user) {
+		s.failLogin(ctx, attempt, "owner_disabled")
 		return nil, security.ErrLoginDisabled
 	}
 	// 未绑定目标：手机号为空/邮箱为空时不能走验证码登录。
@@ -498,6 +521,9 @@ func (s *authService) VerifyLoginOTP(ctx context.Context, req dto.VerifyOTPReque
 		return nil, security.ErrInvalidOTPToken
 	}
 	if user.Status != "active" {
+		return nil, security.ErrLoginDisabled
+	}
+	if !s.ownerUsableForSub(ctx, *user) {
 		return nil, security.ErrLoginDisabled
 	}
 	// 二次验证通过即视为该通道可用（SMS 场景顺带把手机号标记为已验证）。

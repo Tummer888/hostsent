@@ -2513,16 +2513,32 @@ func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, r
 		reasonClass = pkgmodel.SuspendReasonManual
 	}
 	before := row.Status
-	params := map[string]any{"reason": reason, "reason_class": reasonClass}
+	// 下发给上游的原因要用**分类驱动的规范文案**，而不是只把管理员随手写的备注转过去。
+	//
+	// 面板侧的暂停原因是机器可读的动作码（魔方云 /clouds/{id}/suspend 的 type：
+	// due/traffic/other），适配器靠关键词把说明文字归一成动作码。若这里传的是
+	// "管理员暂停"这类兜底文案，面板上看到的永远是"其他原因"——
+	// 分类明明选了「到期未续费」，面板却显示 other，运营在面板侧核对时对不上账。
+	// 因此：有自由说明就用说明（信息更全），没有就按分类给规范文案。
+	upstreamReason := reason
+	if strings.TrimSpace(upstreamReason) == "" {
+		switch reasonClass {
+		case pkgmodel.SuspendReasonExpired:
+			upstreamReason = "到期未续费"
+		case pkgmodel.SuspendReasonViolation:
+			upstreamReason = "违规使用"
+		default:
+			upstreamReason = "管理员暂停"
+		}
+	}
+	// 审计里落规范文案：管理员没写备注时，"到底以什么名义暂停的"要能从流水读出来。
+	params := map[string]any{"reason": upstreamReason, "reason_class": reasonClass}
 	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionSuspend, params, before, before, err)
 		return err
 	}
-	if reason == "" {
-		reason = "管理员暂停"
-	}
-	if err := upstream.SuspendWithFallback(ctx, provider, row.InstanceMark(), reason); err != nil {
+	if err := upstream.SuspendWithFallback(ctx, provider, row.InstanceMark(), upstreamReason); err != nil {
 		err = mapCapabilityErr(err)
 		s.record(ctx, row, op, model.ActionSuspend, params, before, before, err)
 		return err
@@ -3255,7 +3271,7 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		// 服务态答"这个服务还在不在有效期内/有没有被我方暂停"。
 		// 此前前端只凭 status 分不清关机与暂停，把两者压成一句「已暂停」。
 		PowerState:   powerStateOf(row.Status, row.TransitionState),
-		ServiceState: serviceStateOf(row.ExpireAt, row.LifecycleStage, row.SuspendReason, row.ProviderInstanceID == "", withinDays),
+		ServiceState: serviceStateOf(row.ExpireAt, row.LifecycleStage, row.Status, row.SuspendReason, row.ProviderInstanceID == "", withinDays),
 		// 过渡态：非 nil 表示有未确认的操作在进行（界面显示"重启中"+禁用冲突动作）。
 		Transition:       transitionInfoOf(row.TransitionState, row.TransitionStartedAt, row.TransitionUntil),
 		PrivateIP:        row.PrivateIP,
@@ -3722,6 +3738,9 @@ func powerStateOf(status, transition string) string {
 		return "on"
 	case string(pkgmodel.InstanceStatusStopped):
 		return "off"
+	case string(pkgmodel.InstanceStatusRestarting):
+		// 重启中机器仍在通电（面板 wait_reboot/task）：报 off 会让运营以为它已关机。
+		return "on"
 	default:
 		return "unknown"
 	}
@@ -3735,7 +3754,11 @@ func powerStateOf(status, transition string) string {
 //
 // 优先级自高到低，每一步都在排除掉一类"不能算服务中"的行：
 //
-//  1. 终态（destroyed/deleted）→ destroyed：账期已终结，不可恢复
+//  1. 终态（destroyed/deleted）→ destroyed：账期已终结，不可恢复。
+//     **status=deleted 也要认**（第二十三轮）：同步发现面板侧机器已被删除时只落
+//     status（phase 是到期处置的进度，不该被面板删除污染），此时若只看 stage，
+//     一台已经不存在的机器会继续显示「服务中」—— 与"关机不能显示成暂停"同一类
+//     维度混比缺陷。
 //  2. 从未开通（占位行）→ pending：**机器还不存在**，谈"服务中"是误导。
 //     这一条是第十九轮修的缺陷：占位行 expire_at 通常在未来，此前落到 active，
 //     界面把一台还没开出来的机器显示成「服务中」。
@@ -3744,9 +3767,9 @@ func powerStateOf(status, transition string) string {
 //  4. 其他暂停（到期/人工）→ suspended
 //  5. 到期时间派生：active / expiring / expired / grace
 //
-// 判据刻意不看 status：一台关机但未到期的实例，服务维度仍是 active ——
-// 服务在有效期内，只是机器没开。
-func serviceStateOf(expireAt *time.Time, stage, suspendReason string, pending bool, withinDays int) string {
+// 判据刻意不看 status 的**电源取值**：一台关机但未到期的实例，服务维度仍是 active ——
+// 服务在有效期内，只是机器没开。唯一例外是 status=deleted（机器已不存在）。
+func serviceStateOf(expireAt *time.Time, stage, status, suspendReason string, pending bool, withinDays int) string {
 	switch stage {
 	case lifecycleStageDestroyed:
 		return "destroyed"
@@ -3759,6 +3782,12 @@ func serviceStateOf(expireAt *time.Time, stage, suspendReason string, pending bo
 			return serviceStateSuspendedViolation
 		}
 		return "suspended"
+	}
+	// 面板侧删除（同步标记）没有改阶段：阶段是到期处置的进度，面板删除不属于
+	// 我方处置。此处按 status 补一条终态判据，否则机器已经不存在了、服务维度
+	// 还会因为 expire_at 在未来而报「服务中」。
+	if status == string(pkgmodel.InstanceStatusDeleted) {
+		return "destroyed"
 	}
 	// 占位行（尚未开通）不参与账期判定：没有交付物就没有"服务中"。
 	if pending {

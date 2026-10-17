@@ -15,7 +15,7 @@
         <span class="hero-desc">{{ ticket?.title || '加载中…' }}</span>
       </div>
       <t-popconfirm
-        v-if="ticket && ticket.status === 'open'"
+        v-if="ticket && ticket.status === 'open' && canSubmit"
         content="确定取消该工单吗？"
         theme="danger"
         @confirm="handleCancel"
@@ -107,7 +107,7 @@
               <t-link theme="danger" hover="color" @click="pendingFiles.splice(index, 1)">移除</t-link>
             </div>
           </div>
-          <div class="editor-actions">
+          <div v-if="canSubmit" class="editor-actions">
             <input ref="fileInputRef" type="file" class="hidden-file-input" multiple @change="handleFilePicked" />
             <t-space size="small">
               <t-button variant="outline" :disabled="uploading || maxAttachmentReached" @click="triggerFilePick">
@@ -118,7 +118,10 @@
               >
             </t-space>
           </div>
-          <p class="attachment-tip">支持图片、文本与压缩包，单个不超过 10MB，最多 {{ MAX_ATTACHMENTS }} 个。</p>
+          <p v-if="canSubmit" class="attachment-tip">
+            支持图片、文本与压缩包，单个不超过 10MB，最多 {{ MAX_ATTACHMENTS }} 个。
+          </p>
+          <p v-else class="attachment-tip">当前账号为只读权限，可查看工单但不能回复或上传附件。</p>
         </div>
         <div v-else class="reply-closed-tip">工单已结束，如需继续处理请重新提交工单。</div>
       </section>
@@ -143,6 +146,7 @@ import {
   type TicketDetail,
   type TicketReplyInfo,
 } from '@/api/support'
+import { useMemberStore } from '@/store/modules/member'
 import {
   formatTime,
   ticketPriorityLabel,
@@ -155,6 +159,13 @@ defineOptions({ name: 'UserTicketDetail' })
 
 const route = useRoute()
 const router = useRouter()
+const memberStore = useMemberStore()
+
+/**
+ * 能否在本工单上写操作（回复/上传附件/取消）。后端这些路由要求 ticket:submit，
+ * 只有 ticket:view 的子账号应看到只读视图，而不是点了才 403。
+ */
+const canSubmit = computed(() => memberStore.has('ticket:submit'))
 
 const ticket = ref<TicketDetail | null>(null)
 const loading = ref(false)

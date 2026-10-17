@@ -128,6 +128,16 @@ type (
 	pendingPaymentCloser interface {
 		CloseByBiz(ctx context.Context, bizType string, bizID uint64) (int, error)
 	}
+	// payMethodResolver 默认支付方式解析：下单时把「客户打算怎么付」写进订单。
+	//
+	// 顺序：用户中心设置的默认支付渠道 > 平台默认渠道 > 空（未配置任何渠道）。
+	// 余额支付不参与解析（余额是站内资金，不依赖渠道配置）。
+	// 由装配层注入（支付中心偏好服务），uc 侧不 import 支付中心实现。
+	payMethodResolver interface {
+		// DefaultPayMethod 返回该用户在指定场景下的默认支付方式（渠道编码）；
+		// 无可用渠道或未配置时返回空串。
+		DefaultPayMethod(ctx context.Context, userID uint64, scene string) string
+	}
 )
 
 // OrderService 用户中心订单业务能力。
@@ -167,6 +177,9 @@ type OrderService interface {
 	SetOptionLabelResolver(port optionLabelPort)
 	// SetRefundPort 注入客户自助退款端口（装配层调用；nil 时退款接口返回不可用）。
 	SetRefundPort(port refundPort)
+	// SetPayMethodResolver 注入默认支付方式解析（装配层调用）。
+	// 未注入时下单不预填 pay_method（存量行为不变），到账时再由渠道回调/人工入账写入。
+	SetPayMethodResolver(r payMethodResolver)
 }
 
 type orderService struct {
@@ -185,6 +198,7 @@ type orderService struct {
 	optionPricing   optionPricingPort                                 // 选配项校验与计价（T4.5），可为 nil（无选配项的商品照旧下单）
 	optionLabels    optionLabelPort                                   // 选配项可读名解析（可选项；nil 时订单不带可读标签）
 	refunds         refundPort                                        // 客户自助退款（装配层注入；nil 时退款接口不可用）
+	payMethods      payMethodResolver                                 // 默认支付方式解析（装配层注入；nil 时不预填）
 	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
 	prepay          prepayPort                                        // 收银台发起支付（支付中心），可为 nil（未装配时不可线上支付）
 	pendingPayments pendingPaymentCloser                              // 关闭未支付支付单，可为 nil
@@ -288,6 +302,29 @@ func (s *orderService) SetLogger(l *zap.Logger) { s.logger = l }
 
 // SetRefundPort 注入客户自助退款端口（装配层调用）。
 func (s *orderService) SetRefundPort(port refundPort) { s.refunds = port }
+
+// SetPayMethodResolver 注入默认支付方式解析（装配层调用）。
+func (s *orderService) SetPayMethodResolver(r payMethodResolver) { s.payMethods = r }
+
+// resolveOrderPayMethod 解析下单时应写入订单的支付方式。
+//
+// 口径（与用户确认）：
+//   - 请求显式带了 pay_method → 用它（客户在结算页选了具体渠道）；
+//   - 余额支付 → balance（站内资金，与渠道配置无关）；
+//   - 渠道支付 → 用户默认渠道 > 平台默认渠道；都没有则留空
+//     （不编造支付方式：没配任何渠道时写个假值会污染按方式筛选与退款去向判定）。
+func (s *orderService) resolveOrderPayMethod(ctx context.Context, userID uint64, req dto.CreateRequest, useChannel bool) string {
+	if m := strings.TrimSpace(req.PayMethod); m != "" {
+		return m
+	}
+	if !useChannel {
+		return dto.PayModeBalance
+	}
+	if s.payMethods == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.payMethods.DefaultPayMethod(ctx, userID, ""))
+}
 
 // SetOptionLabelResolver 注入选配项可读名解析（见 optionLabelPort 说明）。
 func (s *orderService) SetOptionLabelResolver(port optionLabelPort) { s.optionLabels = port }
@@ -635,10 +672,15 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		CustomerRemark: truncRunes(strings.TrimSpace(req.CustomerRemark), 255),
 	}
 	if useChannel {
-		// 未收款：不写 paid_amount/pay_method/pay_time，避免未付款的订单混进销售额口径
+		// 未收款：不写 paid_amount/pay_time，避免未付款的订单混进销售额口径
 		// （仓储侧 paidStatuses 已排除 pending，这里保持列语义干净）。
+		//
+		// pay_method 例外：**下单即绑定支付方式**（用户确认的口径）——
+		// 待支付订单在后台列表里就能看到客户打算用什么付，场外收款人工入账时
+		// 也有默认值可预填。它与 paid_amount/pay_time 不冲突：后者是"收到钱了"的事实，
+		// 前者是"打算怎么付"的意图，到账时（渠道回调/人工入账）一律被实际方式覆盖。
 		order.Status = dto.OrderStatusPending
-		order.PayMethod = ""
+		order.PayMethod = s.resolveOrderPayMethod(ctx, userID, req, true)
 		order.PaidAmount = 0
 		order.PayTime = nil
 	}

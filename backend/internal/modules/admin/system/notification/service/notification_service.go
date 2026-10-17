@@ -3,6 +3,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -142,8 +143,9 @@ func (s *notificationService) Publish(ctx context.Context, in notifydto.PublishI
 
 	// 站内信通道：落库即送达。
 	// bug ④ 修复：站内信同样受偏好控制（此前只判 tpl.InboxOn，用户关不掉）。
-	// 例外：验证类事件（OTP）豁免，见 notifier.IsMandatoryEvent。
-	if tpl.InboxOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelInbox) {
+	// 例外：验证类事件（OTP）豁免，见 notifier.IsMandatoryEvent；
+	// 调用方指定 ForceChannels 时按指定渠道直发（运营显式触达，见 PublishInput 注释）。
+	if s.wantInbox(ctx, tpl, in) {
 		n := &notifymodel.Notification{
 			UserID:        in.UserID,
 			TargetType:    target,
@@ -158,7 +160,7 @@ func (s *notificationService) Publish(ctx context.Context, in notifydto.PublishI
 		}
 		if err := s.repo.CreateInbox(ctx, n); err != nil {
 			if isDuplicateKey(err) {
-				// bug ③：幂等唯一索引冲突说明重复发布，视为成功（不再真的插两条）。
+				// bug ③：幂等唯一索引冲突说明重复发布，视为成功（不再真的插两行）。
 				s.logger.Info("notification: inbox duplicate, skip",
 					zap.String("event", in.Event), zap.String("source_id", in.SourceID))
 			} else {
@@ -173,7 +175,18 @@ func (s *notificationService) Publish(ctx context.Context, in notifydto.PublishI
 	return nil
 }
 
+// wantInbox 站内信是否发送：ForceChannels 指定时只看指定列表，否则按模板开关 + 用户偏好。
+func (s *notificationService) wantInbox(ctx context.Context, tpl *notifymodel.NotificationTemplate, in notifydto.PublishInput) bool {
+	if len(in.ForceChannels) > 0 {
+		return containsChannel(in.ForceChannels, notifymodel.ChannelInbox)
+	}
+	return tpl.InboxOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelInbox)
+}
+
 // enqueueExternal 按模板开关与用户偏好把外发通道写入投递队列。
+//
+// ForceChannels 非空时忽略模板开关与用户偏好，只按指定渠道入队 ——
+// 语义是「运营显式选择的触达」，客户关掉该事件通知不应让运营的告知静默消失。
 func (s *notificationService) enqueueExternal(
 	ctx context.Context,
 	tpl *notifymodel.NotificationTemplate,
@@ -183,8 +196,13 @@ func (s *notificationService) enqueueExternal(
 	if s.deliveries == nil {
 		return
 	}
+	forced := len(in.ForceChannels) > 0
 	wantMail := tpl.MailOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelMail)
 	wantSMS := tpl.SmsOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelSMS)
+	if forced {
+		wantMail = containsChannel(in.ForceChannels, notifymodel.ChannelMail)
+		wantSMS = containsChannel(in.ForceChannels, notifymodel.ChannelSMS)
+	}
 	if !wantMail && !wantSMS {
 		return
 	}
@@ -469,4 +487,14 @@ func toNotificationInfoList(items []notifymodel.Notification) []notifydto.Notifi
 		result = append(result, *toNotificationInfo(&items[i]))
 	}
 	return result
+}
+
+// containsChannel 判断渠道列表中是否包含目标渠道（大小写归一，容忍前端传大写）。
+func containsChannel(channels []string, want string) bool {
+	for _, c := range channels {
+		if strings.EqualFold(strings.TrimSpace(c), want) {
+			return true
+		}
+	}
+	return false
 }

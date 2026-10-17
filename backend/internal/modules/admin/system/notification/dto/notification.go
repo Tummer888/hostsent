@@ -9,6 +9,14 @@ type PublishInput struct {
 	Vars         map[string]string `json:"vars"`          // 模板变量
 	SourceModule string            `json:"source_module"` // 来源模块
 	SourceID     string            `json:"source_id"`     // 来源单号（幂等去重）
+	// ForceChannels 强制发送渠道（inbox/mail/sms）：非空时**忽略模板开关与用户偏好**，
+	// 只按此列表发送。
+	//
+	// 用途是「运营显式选择的触达」：后台确认收款后主动告知客户时，
+	// 操作人勾了邮件就是要发邮件 —— 若走常规偏好过滤，客户把该事件的通知
+	// 关掉后运营的告知会静默消失，而运营以为已经通知过了。
+	// 空值保持既有行为（模板开关 + 用户偏好），因此不影响任何现有调用方。
+	ForceChannels []string `json:"force_channels,omitempty"`
 }
 
 // AnnouncementCreateRequest 创建公告请求。

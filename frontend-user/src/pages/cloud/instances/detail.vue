@@ -83,7 +83,13 @@
     />
     <t-alert v-else-if="stateAlert" :theme="stateAlert.theme" class="detail-alert" :message="stateAlert.message">
       <template v-if="stateAlert.action" #operation>
-        <t-button theme="primary" size="small" variant="outline" @click="$router.push('/cloud/renewals')">
+        <t-button
+          v-if="memberStore.has('order:view')"
+          theme="primary"
+          size="small"
+          variant="outline"
+          @click="$router.push('/cloud/renewals')"
+        >
           {{ stateAlert.action }}
         </t-button>
       </template>
@@ -92,7 +98,7 @@
     <!-- 电源与维护操作条 -->
     <section class="surface-card action-bar">
       <template v-if="isPending">
-        <t-button theme="primary" :loading="retrying" @click="onRetry">
+        <t-button theme="primary" :disabled="!operator" :loading="retrying" @click="onRetry">
           <template #icon><RefreshIcon /></template>
           重新开通
         </t-button>
@@ -249,7 +255,13 @@
             <span class="kv-val">{{ formatTime(instance.updated_at) }}</span>
           </div>
           <div class="kv kv--action">
-            <t-button theme="primary" variant="outline" size="small" @click="$router.push('/cloud/renewals')">
+            <t-button
+              v-if="memberStore.has('order:view')"
+              theme="primary"
+              variant="outline"
+              size="small"
+              @click="$router.push('/cloud/renewals')"
+            >
               去续费
             </t-button>
           </div>
@@ -547,6 +559,7 @@ import {
 } from 'tdesign-icons-vue-next'
 
 import InstanceMetrics from '@/components/InstanceMetrics.vue'
+import { useMemberStore } from '@/store/modules/member'
 import {
   destroyInstance,
   getInstance,
@@ -589,6 +602,7 @@ defineOptions({ name: 'InstanceDetail' })
 
 const route = useRoute()
 const router = useRouter()
+const memberStore = useMemberStore()
 const instance = ref<InstanceInfo | null>(null)
 const loading = ref(false)
 /** 加载失败原因（空串=正常）：模板据此显示错误态 + 重试，而不是一直空着。 */
@@ -634,6 +648,7 @@ const powerState = computed(() =>
 
 const serviceState = computed(() =>
   serviceStateView({
+    status: instance.value?.status,
     lifecycle_stage: instance.value?.lifecycle_stage,
     expire_state: instance.value?.expire_state,
     service_state: instance.value?.service_state,
@@ -715,17 +730,28 @@ onBeforeUnmount(() => {
   }
 })
 
-/** 能力位：缺省（老数据）时按可操作处理，避免整页按钮被禁用。 */
-const caps = computed(() => ({
-  power: instance.value?.capabilities ? instance.value.capabilities.power : true,
-  console: instance.value?.capabilities ? instance.value.capabilities.console : true,
-  reinstall: instance.value?.capabilities ? instance.value.capabilities.reinstall : true,
-  reset_password: instance.value?.capabilities ? instance.value.capabilities.reset_password : true,
-  rescue: instance.value?.capabilities ? instance.value.capabilities.rescue : true,
-  snapshot: instance.value?.capabilities ? instance.value.capabilities.snapshot : true,
-  destroy: instance.value?.capabilities ? instance.value.capabilities.destroy : true,
-  metrics: instance.value?.capabilities ? instance.value.capabilities.metrics : true,
-}))
+/**
+ * 能力位：缺省（老数据）时按可操作处理，避免整页按钮被禁用。
+ *
+ * `operator` 是账号侧权限（instance:operate），与机型侧能力位（capabilities）是
+ * 两回事：前者决定「这个人能不能操作」，后者决定「这台机器支不支持该动作」。
+ * 两者取与，缺任一都置灰——否则只读子账号会看到能点但必然 403 的按钮。
+ */
+const operator = computed(() => memberStore.has('instance:operate'))
+const caps = computed(() => {
+  const cap = (key: keyof NonNullable<InstanceInfo['capabilities']>) =>
+    instance.value?.capabilities ? instance.value.capabilities[key] : true
+  return {
+    power: operator.value && cap('power'),
+    console: operator.value && cap('console'),
+    reinstall: operator.value && cap('reinstall'),
+    reset_password: operator.value && cap('reset_password'),
+    rescue: operator.value && cap('rescue'),
+    snapshot: operator.value && cap('snapshot'),
+    destroy: operator.value && cap('destroy'),
+    metrics: instance.value?.capabilities ? instance.value.capabilities.metrics : true,
+  }
+})
 
 /** 到期相关提示（过期/宽限/临期），与状态徽标互补：徽标说结论，这里说该做什么。 */
 const stateAlert = computed<{ theme: string; message: string; action?: string } | null>(() => {

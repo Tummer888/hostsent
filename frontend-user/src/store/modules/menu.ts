@@ -68,7 +68,22 @@ const iconMap: Record<string, Component> = {
  * menus 表没有 ownerOnly 字段（不为一条菜单加列），这里按路径白名单在前端过滤，
  * 与 router meta.ownerOnly 是同一套语义、同一批路径，改一处要同时改两处。
  */
-export const OWNER_ONLY_MENU_PATHS: ReadonlySet<string> = new Set(['/member'])
+/**
+ * 仅主账号可见的菜单路径（子账号侧边栏隐藏）。
+ *
+ * 与后端 uc/menu 服务的 ownerOnlyMenuPaths 必须一致：后端已按权限裁剪，
+ * 前端这份是「同一次请求里就藏好」的兜底 —— 菜单数据可能来自缓存或旧接口，
+ * 不能让子账号看到点进去必然 403 的入口。改动时两边同步。
+ */
+export const OWNER_ONLY_MENU_PATHS: ReadonlySet<string> = new Set([
+  '/member',
+  '/referral',
+  '/referral/overview',
+  '/referral/invitees',
+  '/referral/cashbacks',
+  '/referral/withdrawals',
+  '/referral/materials',
+])
 
 export interface FlatMenu {
   id: number

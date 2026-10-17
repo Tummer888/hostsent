@@ -20,12 +20,21 @@
           <template #icon><RefreshIcon /></template>
           刷新状态
         </t-button>
-        <t-button theme="primary" @click="$router.push('/shop')">
+        <t-button theme="primary" :disabled="!memberStore.has('order:create')" @click="$router.push('/shop')">
           <template #icon><AddIcon /></template>
           购买云主机
         </t-button>
       </div>
     </header>
+
+    <!-- 只读账号说明：子账号只被授予 instance:view 时，电源/控制台按设计禁用，
+         这里明示原因，避免用户以为是页面故障。 -->
+    <t-alert
+      v-if="memberStore.isSub && !canOperate"
+      class="readonly-tip"
+      theme="info"
+      message="当前账号为只读权限，可查看云主机但不能进行电源、控制台与维护操作。如需操作请联系主账号授予「实例操作」权限。"
+    />
 
     <!-- 汇总卡片：数字来自服务端 summary（与列表徽标同一套口径，前端不自己数） -->
     <section class="instance-stat-grid">
@@ -67,7 +76,13 @@
       :message="`有 ${summary.expiring} 台即将到期、${summary.expired} 台已过期，请及时续费以免服务中断`"
     >
       <template #operation>
-        <t-button theme="primary" size="small" variant="outline" @click="$router.push('/cloud/renewals')">
+        <t-button
+          v-if="memberStore.has('order:view')"
+          theme="primary"
+          size="small"
+          variant="outline"
+          @click="$router.push('/cloud/renewals')"
+        >
           去续费
         </t-button>
       </template>
@@ -99,7 +114,7 @@
           <div class="instance-card__actions">
             <t-button size="small" theme="primary" variant="outline" @click="goDetail(row)">详情</t-button>
             <template v-if="row.pending">
-              <t-button size="small" theme="primary" :loading="retryingId === row.id" @click="onRetry(row)">
+              <t-button size="small" theme="primary" :disabled="!canOperate" :loading="retryingId === row.id" @click="onRetry(row)">
                 重新开通
               </t-button>
             </template>
@@ -205,7 +220,7 @@
           <div class="action-cell">
             <t-link theme="primary" hover="color" @click="goDetail(row)">详情</t-link>
             <template v-if="row.pending">
-              <t-link theme="primary" hover="color" @click="onRetry(row)">重新开通</t-link>
+              <t-link theme="primary" hover="color" :disabled="!canOperate" @click="onRetry(row)">重新开通</t-link>
             </template>
             <template v-else>
               <t-link
@@ -282,6 +297,7 @@ import {
   type PowerAction,
 } from '@/api/cloud'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMemberStore } from '@/store/modules/member'
 import { combineInstanceState, daysLeftText, daysLeftTheme, formatMemory, formatTime, powerStateView, serviceStateView, stateIcon } from './constants'
 
 defineOptions({ name: 'InstanceList' })
@@ -302,6 +318,12 @@ const EMPTY_SUMMARY: InstanceListSummary = {
 
 const router = useRouter()
 const { isMobile } = useIsMobile()
+const memberStore = useMemberStore()
+/**
+ * 是否允许电源/控制台等实例写操作：后端这些路由要求 instance:operate，
+ * 子账号只有 instance:view 时按钮要禁用，否则点了才 403。
+ */
+const canOperate = computed(() => memberStore.has('instance:operate'))
 const instances = ref<InstanceInfo[]>([])
 const summary = ref<InstanceListSummary>({ ...EMPTY_SUMMARY })
 const loading = ref(false)
@@ -342,6 +364,7 @@ function powerOf(row: InstanceInfo) {
 
 function serviceOf(row: InstanceInfo) {
   return serviceStateView({
+    status: row.status,
     lifecycle_stage: row.lifecycle_stage,
     expire_state: row.expire_state,
     service_state: row.service_state,
@@ -386,6 +409,7 @@ function stateIconComponent(label: string): Component {
 
 /** 能力位缺省时按可操作处理：旧数据没有 capabilities 字段，不该因此禁用全部按钮。 */
 function canPower(row: InstanceInfo): boolean {
+  if (!canOperate.value) return false
   if (row.pending) return false
   // 过渡态期间一律禁用：平台正在执行上一个动作，再点会堆指令（用户实测反馈）。
   // 超时（overdue）后放行 —— 结果未知时让客户能重试。
@@ -393,6 +417,7 @@ function canPower(row: InstanceInfo): boolean {
   return row.capabilities ? row.capabilities.power : true
 }
 function canConsole(row: InstanceInfo): boolean {
+  if (!canOperate.value) return false
   if (row.pending) return false
   const supported = row.capabilities ? row.capabilities.console : true
   return supported && row.status === 'running'

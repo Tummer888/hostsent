@@ -9,7 +9,7 @@
           <span class="hero-desc">提交问题、跟进进度，与工程师实时沟通。</span>
         </div>
       </div>
-      <t-button theme="primary" size="large" @click="goCreate">
+      <t-button v-if="canSubmit" theme="primary" size="large" @click="goCreate">
         <template #icon><AddIcon /></template>
         提交工单
       </t-button>
@@ -96,10 +96,15 @@ import {
   ticketStatusLabel,
   ticketStatusTheme,
 } from '@/pages/support/constants'
+import { useMemberStore } from '@/store/modules/member'
 
 defineOptions({ name: 'TicketList' })
 
 const router = useRouter()
+const memberStore = useMemberStore()
+
+/** 提交工单入口按 ticket:submit 门禁：只有 ticket:view 的子账号不该看到必然 403 的按钮。 */
+const canSubmit = computed(() => memberStore.has('ticket:submit'))
 
 const loading = ref(false)
 const tickets = ref<TicketInfo[]>([])

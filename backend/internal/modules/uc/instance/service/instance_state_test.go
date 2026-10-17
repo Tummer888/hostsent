@@ -23,6 +23,8 @@ func TestPowerStateOf(t *testing.T) {
 	}{
 		{"运行中 → on", model.Instance{Status: "running"}, "on"},
 		{"已关机 → off", model.Instance{Status: "stopped"}, "off"},
+		// restarting（面板 wait_reboot/task）机器仍在通电，不能报「已关机」。
+		{"重启中 → on（仍在通电）", model.Instance{Status: "restarting"}, "on"},
 		{"创建中 → unknown", model.Instance{Status: "creating"}, "unknown"},
 		{
 			"开机中（窗口内）→ transitioning",
@@ -88,6 +90,12 @@ func TestServiceStateOf(t *testing.T) {
 		{"人工暂停 → suspended（不冒充违规）", model.Instance{ProviderInstanceID: "1", LifecycleStage: "suspended",
 			SuspendReason: pkgmodel.SuspendReasonManual}, expireStateNormal, 60, "suspended"},
 		{"暂停但原因未知（存量行）→ suspended", model.Instance{ProviderInstanceID: "1", LifecycleStage: "suspended"}, expireStateNormal, 60, "suspended"},
+		// 第二十三轮：面板侧删除（同步只落 status，不改阶段）在客户侧同样要显示终态。
+		// 不认 status=deleted 时，一台已被删除的机器会继续显示「服务中」并开放开关机，
+		// 客户点了只会拿到上游 404。
+		{"面板已删除（status=deleted）→ destroyed", model.Instance{ProviderInstanceID: "1", LifecycleStage: "active", Status: "deleted"}, expireStateNormal, 60, "destroyed"},
+		// 反向确认：关机只是电源维度，不能因为补了终止判据就把关机算成服务终止。
+		{"已关机（status=stopped）→ 服务维度仍是 active", model.Instance{ProviderInstanceID: "1", LifecycleStage: "active", Status: "stopped"}, expireStateNormal, 60, "active"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
