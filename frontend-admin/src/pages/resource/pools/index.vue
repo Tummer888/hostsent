@@ -697,7 +697,9 @@ async function loadPools() {
       page: pagination.current,
       page_size: pagination.pageSize,
     })
-    poolList.value = data.items
+    // 空结果兜底成空数组：层级视图在零结果时若后端返回 null（历史版本），
+    // 树表格对 null 取 length 会整页抛错；这里再兜一层，页面永不因空数据崩。
+    poolList.value = data.items || []
     total.value = data.meta.total
     pagination.total = data.meta.total
     mobilePage.total = data.meta.total
@@ -715,7 +717,12 @@ async function loadProviders() {
   if (props.providerId !== undefined) return
   try {
     const data = await getProviderList({ page: 1, page_size: 100 })
-    providerOptions.value = data.items.map((item: ProviderInfo) => ({ label: item.name, value: item.id }))
+    // 渠道下拉只列**具备资源池能力**的渠道（描述符声明 pool scope，即自营算力平台）。
+    // 上游转售渠道没有本地容量概念，调度与适配器两层都不产生池数据，列出来只会在
+    // 选中后得到一张永远空的表 —— 用户分不清"没采到"和"本来就没有"。
+    providerOptions.value = (data.items || [])
+      .filter((item: ProviderInfo) => (item.capabilities?.sync_scopes || []).includes('pool'))
+      .map((item: ProviderInfo) => ({ label: item.name, value: item.id }))
   } catch {
     /* 提供商下拉加载失败不阻塞列表 */
   }

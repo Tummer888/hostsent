@@ -48,9 +48,13 @@ var expireAnomalyNames = map[string]string{
 }
 
 // statusAnomalyNames 状态向异常展示名（doc120）。
+//
+// 措辞只描述**服务**维度：上游侧是 domainstatus（服务状态），本地侧是
+// lifecycle_stage 归一后的服务口径。旧名"上游已暂停本地未同步""上游已删除本地仍有效"
+// 用的是机器语感，用户关机后看到会以为"系统没帮我同步状态"（第二十一轮修复）。
 var statusAnomalyNames = map[string]string{
-	dto.StatusMismatch: "状态不同步",
-	dto.StatusStale:    "上游已删除本地仍有效",
+	dto.StatusMismatch: "服务状态两侧不一致",
+	dto.StatusStale:    "上游已终止本地仍在服务",
 	dto.ExpireOK:       "", // 复用 "ok" 字面量，三个向的 ok 同值
 }
 
@@ -61,14 +65,33 @@ var severityNames = map[string]string{
 	dto.SeverityOK:      "正常",
 }
 
-// statusNames 实例状态展示名（与实例运维台口径一致）。
+// statusNames 本地**机器/电源**维度展示名（与实例运维台口径一致）。
+//
+// 注意它只用于展示本地 status 原文的场景；状态比对走 serviceStateNames
+// （服务维度）—— 上游 domainstatus 是服务状态，拿机器状态去比会误报
+// （第二十一轮：关机后被判成"状态不同步"，因为本地 stopped vs 上游 Active）。
 var statusNames = map[string]string{
 	"running":   "运行中",
 	"stopped":   "已停止",
 	"suspended": "已暂停",
 	"pending":   "创建中",
 	"creating":  "创建中",
+	"deleted":   "已删除",
+	"cancelled": "已取消",
 	"unknown":   "未知",
+}
+
+// serviceStateNames 本地**服务**维度展示名（对账比对时的本地侧口径）。
+//
+// 与 statusNames 的区别：这台机器通电与否（machine）和这项服务是否在用
+// （service）是两件事。上游 domainstatus 属于后者，所以本地也要用后者去对。
+var serviceStateNames = map[string]string{
+	"active":       "服务中",
+	"grace":        "宽限期",
+	"provisioning": "开通中",
+	"suspended":    "已暂停",
+	"destroyed":    "已终止",
+	"cancelled":    "已取消",
 }
 
 func (s *reconcileService) List(ctx context.Context, query dto.ReconcileListQuery) (*dto.ReconcileListResponse, error) {
@@ -199,8 +222,15 @@ func buildItem(row repository.ReconcileRow, usernames map[uint64]string, provide
 		UpstreamStatus:      row.UpstreamStatus,
 		StatusAnomaly:       row.StatusAnomaly,
 		StatusAnomalyName:   statusAnomalyNames[row.StatusAnomaly],
-		Severity:            row.Severity,
-		SeverityName:        severityNames[row.Severity],
+		// 上游侧给中文名：与本地侧（local_service_state_name）用同一套服务维度
+		// 用词，页面并排展示时读数才是"服务中 / 已暂停"这类同类词。
+		UpstreamStatusName: upstreamStatusLabel(row.UpstreamStatus),
+		// 本地服务维度（比对口径）。空值兜底 "unknown"：老行没有 lifecycle_stage，
+		// 展示成空白会被误读为"本地没有状态"。
+		LocalServiceState:     defaultString(row.LocalServiceState, "unknown"),
+		LocalServiceStateName: labelOf(serviceStateNames, row.LocalServiceState, "未知"),
+		Severity:              row.Severity,
+		SeverityName:          severityNames[row.Severity],
 	}
 	if row.LocalExpire != nil {
 		v := row.LocalExpire.Format(time.RFC3339)
@@ -289,31 +319,34 @@ func buildDetail(item dto.ReconcileItem, row repository.ReconcileRow) string {
 	}
 	switch row.StatusAnomaly {
 	case dto.StatusStale:
-		parts = append(parts, fmt.Sprintf("上游状态已是 %s，本地仍视为 %s，可能仍在为已停服的机器计费",
-			upstreamStatusLabel(row.UpstreamStatus), labelOf(statusNames, row.Status, "有效")))
+		parts = append(parts, fmt.Sprintf("上游状态已是「%s」，本地服务仍视为「%s」，可能仍在为已停服的机器计费",
+			upstreamStatusLabel(row.UpstreamStatus), labelOf(serviceStateNames, row.LocalServiceState, "在用")))
 	case dto.StatusMismatch:
-		parts = append(parts, fmt.Sprintf("上游状态 %s 与本地 %s 不一致，需核对服务实际可用性",
-			upstreamStatusLabel(row.UpstreamStatus), labelOf(statusNames, row.Status, "未知")))
+		parts = append(parts, fmt.Sprintf("上游服务状态「%s」与本地「%s」不一致，需核对服务实际可用性",
+			upstreamStatusLabel(row.UpstreamStatus), labelOf(serviceStateNames, row.LocalServiceState, "未知")))
 	}
 	if len(parts) == 0 {
-		return "售价、到期时间与运行状态均与上游一致"
+		return "售价、到期时间与服务状态均与上游一致"
 	}
 	return strings.Join(parts, "；")
 }
 
 // upstreamStatusLabel 上游 domainstatus 的中文展示；未知值原样回显（便于发现新状态）。
+//
+// 用词与 localServiceStateNames 对齐（服务维度）：两侧并排展示时读起来才是一组
+// 同类词（"服务中 / 已暂停"），而不是一边中文一边英文原文。
 func upstreamStatusLabel(s string) string {
 	switch s {
 	case "Active":
-		return "运行中"
+		return "服务中"
 	case "Pending":
 		return "开通中"
 	case "Suspended":
 		return "已暂停"
 	case "Cancelled":
 		return "已取消"
-	case "Deleted":
-		return "已删除"
+	case "Deleted", "Terminated":
+		return "已终止"
 	case "Fraud":
 		return "风控冻结"
 	case "":
@@ -327,6 +360,14 @@ func labelOf(m map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// defaultString 空串兜底（展示层用；不改变原值语义）。
+func defaultString(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
 }
 
 func money(v *float64) string {

@@ -65,6 +65,55 @@ func TestBuildInstanceEmptyDetail(t *testing.T) {
 	}
 }
 
+// TestBuildInstanceNoStatusStaysEmpty 行里没有 status 字段时必须留空，不得默认 running。
+//
+// 这个值会被实例同步原样写进 instances.status。默认 running 等于断言
+// "接口没给状态 = 机器在跑"：列表接口一旦裁剪/漏返该字段（旧版面板、网关），
+// 每 5 分钟一轮的同步就把一批已关机的机器刷回「运行中」，运维看到的状态与实际相反。
+// 留空后同步侧保留本地值（见 syncInstances 的空状态保护）。
+func TestBuildInstanceNoStatusStaysEmpty(t *testing.T) {
+	inst := buildInstance(map[string]interface{}{"id": "77", "hostname": "hs-nostatus"})
+	if inst.Status != "" {
+		t.Errorf("缺 status 字段时应留空，实得 %q（会被同步写成伪造的电源状态）", inst.Status)
+	}
+	// 有值时仍要正确映射（反向确认没有把整条映射逻辑删掉）。
+	off := buildInstance(map[string]interface{}{"id": "78", "status": "off"})
+	if off.Status != pkgmodel.InstanceStatusStopped {
+		t.Errorf("status=off 应映射为 stopped，实得 %q", off.Status)
+	}
+}
+
+// TestMapCloudStatusKnownValues 真实面板返回的状态取值必须都有确定映射。
+//
+// 实测 provider 19 的列表响应只出现 on / off / init：
+//   · init（正在初始化）此前落到 default → stopped，界面把一台**正在创建**的机器
+//     显示成「已关机」，运营会去点开机；
+//   · 未知新状态同样不能默认成 stopped —— 留空表示"不知道"，由同步侧保留本地值。
+func TestMapCloudStatusKnownValues(t *testing.T) {
+	cases := []struct {
+		in   string
+		want pkgmodel.StandardInstanceStatus
+	}{
+		{"on", pkgmodel.InstanceStatusRunning},
+		{"off", pkgmodel.InstanceStatusStopped},
+		{"suspend", pkgmodel.InstanceStatusStopped},
+		{"paused", pkgmodel.InstanceStatusStopped},
+		{"init", pkgmodel.InstanceStatusCreating},
+		{"wait_reboot", pkgmodel.InstanceStatusRestarting},
+		{"cold_migrate", pkgmodel.InstanceStatusRunning},
+		{"ON", pkgmodel.InstanceStatusRunning},
+		{" off ", pkgmodel.InstanceStatusStopped},
+		// 面板将来新增的状态：宁可"不知道"，也不伪造「已关机」。
+		{"backup_running", ""},
+		{"whatever_new_state", ""},
+	}
+	for _, tc := range cases {
+		if got := mapCloudStatus(tc.in); got != tc.want {
+			t.Errorf("mapCloudStatus(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestSanitizeHostname 面板对主机名有强校验（字母开头 + 只允许字母数字/_-. + ≥6 位）：
 // 中文商品名直接下发会被 400 拒绝，开通静默失败，因此必须有可预期的降级规则。
 func TestSanitizeHostname(t *testing.T) {

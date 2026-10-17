@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -713,15 +714,82 @@ func (e *SyncEngine) syncPoolsInternal(
 // 因此：新实例一律经 PlatformOwnerUserID 落到合法账号；一个可用账号都没有时登记差异并
 // 跳过该行，绝不用非法 user_id 把整批同步拖崩。既有行沿用原 user_id/source_mode，
 // 避免把我方订单开通的自营实例改标成"上游发现"。
+// instanceListPageSize 上游实例列表的单页条数（与适配器默认值一致）。
+const instanceListPageSize = 100
+
+// instanceListMaxPages 单轮最多翻多少页（10 万台的安全上限）。
+//
+// 为什么必须真分页：请求不带 page 时适配器只回第一页（dcimcloud 默认 per_page=100）。
+// 实例超过 100 台以后，第 101 台起的机器既不会被同步，也**永远不会被判缺席**——
+// 它们不在第一页里，却因为"清单看起来拉全了"而被跳过；用户在面板删掉这些机器，
+// 本地一直显示在跑（幽灵机）。这是本轮修复的另一半。
+const instanceListMaxPages = 1000
+
+// listAllInstances 逐页拉全上游实例清单。
+//
+// 返回 truncated=true 表示**清单不可信**（页数触顶，或适配器忽略 page 参数反复
+// 返回同一页）。调用方据此跳过"上游没有 = 已删除"的缺席判定 —— 拿一份残缺清单
+// 去比对，会把没拉到的机器全判成已删除。
+//
+// 去重按上游实例号：分页边界上同一台机器重复出现（上游按更新时间排序时偶发）
+// 不该被当成两台，也不该让 added==0 的"忽略分页"判据误判。
+func (e *SyncEngine) listAllInstances(ctx context.Context, admin upstream.InstanceAdministration) ([]*pkgmodel.StandardInstance, bool, error) {
+	items := make([]*pkgmodel.StandardInstance, 0, instanceListPageSize)
+	seen := make(map[string]struct{}, instanceListPageSize)
+	for page := 1; page <= instanceListMaxPages; page++ {
+		batch, err := admin.ListInstances(ctx, map[string]string{
+			"page":     strconv.Itoa(page),
+			"per_page": strconv.Itoa(instanceListPageSize),
+		})
+		if err != nil {
+			// 翻到一半失败：已拿到的部分同样不可信（前面页的机器可能已被删，
+			// 但后面页的没拉到），整轮放弃，由下一轮重试。
+			return nil, false, err
+		}
+		added := 0
+		for _, it := range batch {
+			if it == nil || strings.TrimSpace(it.UpstreamID) == "" {
+				continue
+			}
+			if _, ok := seen[it.UpstreamID]; ok {
+				continue
+			}
+			seen[it.UpstreamID] = struct{}{}
+			items = append(items, it)
+			added++
+		}
+		// 不满一页 = 已到最后一页，清单完整。
+		if len(batch) < instanceListPageSize {
+			return items, false, nil
+		}
+		// 满页但全是重复：适配器没认 page 参数（一直回同一页）。
+		// 后续页拉不到，清单不完整 —— 不能据此判缺席。
+		if added == 0 {
+			return items, true, nil
+		}
+	}
+	return items, true, nil
+}
+
 func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask, provider upstream.Provider) error {
 	admin, ok := provider.(upstream.InstanceAdministration)
 	if !ok {
 		return &scopeUnsupportedError{scope: syncmodel.ScopeInstance}
 	}
-	items, err := admin.ListInstances(ctx, nil)
+	items, listTruncated, err := e.listAllInstances(ctx, admin)
 	if err != nil {
 		return err
 	}
+	// 「清单为空」不等于「机器全没了」，不能据此把本地整批标成已删除。
+	//
+	// 两种情况都会给出一份合法但空/不全的清单：
+	//   · 面板账号权限不足或接口降级时返回空 data（HTTP 200，不是错误）；
+	//   · 账号切换/代理商视角下只看得见一部分机器。
+	// 若照单全收，全量对账那一轮会把该渠道所有实例一次性标成"已删除"，
+	// 运营看到的是满屏幽灵删除 —— 而机器还好端端在面板上跑着。
+	// 因此：空清单直接跳过缺席判定（只更新已有的行），保留本地状态。
+	//
+	// 分页没拉全（见 listAllInstances）时同理不能判缺席。
 	ids := make([]string, 0, len(items))
 	for _, it := range items {
 		ids = append(ids, it.UpstreamID)
@@ -751,11 +819,31 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 			if prev.UpstreamProductID != 0 {
 				row.UpstreamProductID = prev.UpstreamProductID
 			}
+			// 展示号沿用本地值：按上游号重新关联且未迁移展示号时，两者不同。
+			// 照抄上游号会在 instance_id 唯一索引上另插一行，同一台机器出现两行。
+			if prev.InstanceID != "" {
+				row.InstanceID = prev.InstanceID
+			}
 			// 终态实例不复活：本地已判销毁（stage=destroyed，status=deleted）的实例，
 			// 上游软删未清或接口缓存仍会把它列出来；照抄上游 status（多为 running）
 			// 会让列表把已销毁的机器显示成"运行中"。终态由本系统认定，同步只刷新其余字段。
 			if prev.LifecycleStage == syncLifecycleStageDestroyed {
 				row.Status = string(pkgmodel.InstanceStatusDeleted)
+			} else if it.Status == "" {
+				// 上游没给电源状态（字段缺失/网关裁剪）：保留本地值。
+				// 空值不是"运行中"，照抄会把一台已关机的机器刷成 running。
+				row.Status = prev.Status
+			} else if prev.TransitionState != "" {
+				// 过渡态保护：本地刚下发过开机/关机/重启，上游**还没转过来**时会回动作前的
+				// 旧状态。照抄会把刚写入的前瞻状态冲掉 —— 运营点完关机，下一轮同步
+				// （默认 300 秒）就把它变回「运行中」，界面看起来像关机没生效。
+				//
+				// 与单实例回源（refreshUpstreamFromTransition）同一口径：
+				// 只有上游确实到达该动作的**目标状态**才采纳；仍停在别处则保留本地值，
+				// 让过渡态继续显示「关机中」直到确认或窗口超时。
+				if !pkgmodel.InstanceTransitionOf(prev.TransitionState).SatisfiedBy(string(it.Status)) {
+					row.Status = prev.Status
+				}
 			}
 			rows = append(rows, row)
 			keep = append(keep, it.UpstreamID)
@@ -797,18 +885,49 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 		e.logger.Warn("部分上游实例无归属账号被跳过",
 			zap.Uint64("provider_id", task.ProviderID), zap.Int("skipped", skipped))
 	}
-	if e.fullSyncDue(ctx, task.ProviderID, syncmodel.ScopeInstance) {
-		offline, oerr := e.frameworkRepo.MarkInstancesOffline(ctx, task.ProviderID, keep)
-		if oerr != nil {
-			e.logger.Warn("全量对账下线实例失败", zap.Uint64("provider_id", task.ProviderID), zap.Error(oerr))
-		} else if offline > 0 {
-			e.logger.Info("全量对账下线上游实例",
-				zap.Uint64("provider_id", task.ProviderID), zap.Int64("rows", offline))
+	// 缺席判定（把上游清单里没有的实例同步为已删除）只在**清单可信**时执行：
+	// 空清单与分页未拉全都会给出"看起来没有"的假象，据此标记会把在跑的机器
+	// 全判成已删除（见 listAllInstances 的说明）。
+	//
+	// **不再要求全量对账轮次**：实例同步的每次拉取都是完整清单（listAllInstances
+	// 翻完所有页），不存在"增量清单只覆盖变更部分"这回事。此前把缺席判定挂在
+	// fullSyncDue（实例默认 24 小时）上，等于用户在魔方云面板删了机器，
+	// 本地最长要等一天才同步 —— 与用户口径（第二十三轮「要及时同步」）相悖。
+	// 空清单与分页不全两道护栏已足够防止误判。
+	canDetectAbsence := len(items) > 0 && !listTruncated
+	if canDetectAbsence {
+		marked, merr := e.frameworkRepo.MarkInstancesDeleted(ctx, task.ProviderID, keep)
+		if merr != nil {
+			e.logger.Warn("标记上游已删除失败", zap.Uint64("provider_id", task.ProviderID), zap.Error(merr))
+		} else if len(marked) > 0 {
+			// 落差异明细：运营在同步中心能直接看到"哪几台被判成了已删除"，
+			// 而不是只从实例列表里猜测。处置标记为 applied —— 本地状态确实已被改写。
+			markedDiffs := make([]syncmodel.SyncDiff, 0, len(marked))
+			for i := range marked {
+				markedDiffs = append(markedDiffs, syncmodel.SyncDiff{
+					TaskID: task.ID, ProviderID: task.ProviderID, Scope: syncmodel.ScopeInstance,
+					Action: syncmodel.DiffOffline, LocalID: marked[i].ID,
+					ExternalID: marked[i].InstanceID, OldValue: marked[i].Name,
+					Disposition: syncmodel.DiffDispositionApplied,
+					Remark:      "上游清单中已不存在，本地同步为已删除",
+				})
+			}
+			if derr := e.frameworkRepo.CreateDiffs(ctx, markedDiffs); derr != nil {
+				e.logger.Warn("写入实例删除差异失败", zap.Uint64("provider_id", task.ProviderID), zap.Error(derr))
+			}
+			e.logger.Info("上游清单中已不存在，本地标记为已删除",
+				zap.Uint64("provider_id", task.ProviderID), zap.Int("rows", len(marked)))
 		}
-		e.touchCursor(ctx, task.ProviderID, syncmodel.ScopeInstance, len(items), true)
 	} else {
-		e.touchCursor(ctx, task.ProviderID, syncmodel.ScopeInstance, len(items), false)
+		// 只记日志、不落库：这是护栏在生效，不是异常。
+		e.logger.Info("跳过实例缺席判定（清单不可信）",
+			zap.Uint64("provider_id", task.ProviderID),
+			zap.Int("items", len(items)), zap.Bool("truncated", listTruncated))
 	}
+	// 游标仍按全量周期记时：它驱动的是"资源池/商品"那类可分批拉取的 scope，
+	// 实例同步每轮都是全量，是否刷新 last_full_at 不影响本 scope 的正确性。
+	e.touchCursor(ctx, task.ProviderID, syncmodel.ScopeInstance, len(items),
+		e.fullSyncDue(ctx, task.ProviderID, syncmodel.ScopeInstance))
 	task.TotalCount = len(items)
 	task.SuccessCount = len(rows)
 	return nil

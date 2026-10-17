@@ -2,11 +2,8 @@
 //
 // 协议严格参考魔方财务源码 `app/zjmf.php` 的 zjmfCurl()（财务系统作为下游调用上游）：
 //
-//   - 财务型上游（upstream_type=zjmf_api，即对方也是魔方财务）：
-//     登录 POST {base}/zjmf_api_login（表单 username/password）→ {status:200, jwt}；
+//   - 登录 POST {base}/zjmf_api_login（表单 username/password）→ {status:200, jwt}；
 //     业务调用 {base}/{path}，请求头 `Authorization: Bearer {jwt}`。
-//   - 资源型上游（upstream_type=resource，即魔方资源池/资源型对接）：
-//     登录 POST {base}/resource_login（表单 username/password/type=agent）→ {status:200, jwt}。
 //   - 响应 {status, msg, data}；status==405 表示 JWT 失效，强制重新登录并重试一次；
 //     JWT 按上游默认缓存 90 分钟（5400 秒）。
 //   - 业务请求为 application/x-www-form-urlencoded；GET 时参数拼 query。
@@ -22,8 +19,12 @@
 //   - POST /host/cancel              终止主机（id + type=Immediate + reason）
 //   - POST /provision/default        电源/暂停/恢复/控制台（id + func=on|off|reboot|hard_off|hard_reboot|suspend|unsuspend|vnc）
 //
-// 开通直连走 cart/add_to_shop → cart/settle → apply_credit（见 CreateInstance）；
-// 资源型上游（upstream_type=resource）的开通/续费不在本适配器直接实现，见 notSupported 提示。
+// 开通直连走 cart/add_to_shop → cart/settle → apply_credit（见 CreateInstance）。
+//
+// 本适配器只做「财务型对接」（对方也是魔方财务，账单式转售）：魔方财务另有一种
+// 「资源型」接法（/resource_login + resource/agentproductsarray，面向资源池），
+// 但那条链路的语义与财务型不同，且我方上游转售不需要本地容量概念，故这里不做，
+// 接入时也不会给出该选项。将来若真有资源型上游要接，另立适配器而不是在本文件里分叉。
 package zjmf
 
 import (
@@ -97,11 +98,8 @@ func init() {
 				Placeholder: "上游 API 用户名"},
 			{Key: "api_secret", Label: "API 密钥", Type: upstream.FieldTypePassword, Required: true, Secret: true,
 				Placeholder: "上游 API 密码"},
-			{Key: "upstream_type", Label: "接口类型", Type: upstream.FieldTypeSelect, Required: false,
-				Default: "zjmf_api", Options: []upstream.FieldOption{
-					{Label: "智简魔方", Value: "zjmf_api"},
-					{Label: "资源型", Value: "resource"},
-				}},
+			// 这里原有一个「接口类型」下拉（智简魔方 / 资源型）：本适配器只做财务型对接，
+			// 保留一个只能选同一项的控件只会让人以为"还有别的接法可选"，故整项移除。
 		},
 		EndpointSchema: []upstream.Field{
 			{Key: "api_endpoint", Label: "接口地址", Type: upstream.FieldTypeString, Required: true,
@@ -153,11 +151,6 @@ func (p *Provider) Capabilities() upstream.CapabilityDescriptor {
 	return d
 }
 
-// isResource 是否资源型上游（is_resource=1，登录与业务路径不同）。
-func (p *Provider) isResource() bool {
-	return p.config.UpstreamType == "resource"
-}
-
 // baseURL 去掉协议前缀与尾部斜杠，并按配置拼接 https/端口（与财务 servers 表同构）。
 func (p *Provider) baseURL() (string, error) {
 	host := strings.TrimRight(p.config.APIEndpoint, "/")
@@ -177,11 +170,8 @@ func (p *Provider) baseURL() (string, error) {
 	return strings.TrimRight(host, "/"), nil
 }
 
-// loginURL 登录地址：财务型 /zjmf_api_login，资源型 /resource_login（type=agent）。
+// loginURL 登录地址：财务型固定 /zjmf_api_login（资源型 /resource_login 已移除，见包注释）。
 func (p *Provider) loginURL(base string) string {
-	if p.isResource() {
-		return base + "/resource_login"
-	}
 	return base + "/zjmf_api_login"
 }
 
@@ -199,9 +189,6 @@ func (p *Provider) login(ctx context.Context, force bool) (string, error) {
 	form := url.Values{}
 	form.Set("username", p.config.APIKey)
 	form.Set("password", p.config.APISecret)
-	if p.isResource() {
-		form.Set("type", "agent")
-	}
 	body, status, err := p.httpForm(ctx, http.MethodPost, p.loginURL(base), form, "")
 	if err != nil {
 		return "", err
@@ -406,7 +393,6 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 // zjmfCurl($id, "cart/credit", [], 30, "GET")），服务端实现为
 // app/home/controller/CartController::getCredit() —— 它按 JWT 里的客户 uid 取 clients.credit，
 // 而 /zjmf_api_login 正是以客户身份签发 JWT，因此这里拿到的就是「我方在上游的余额」。
-// 资源型登录（/resource_login，type=agent）同样是客户身份，一并适用。
 //
 // 与其它读接口一样只读不动账：成本管理用它落余额快照，再由快照推算消耗。
 func (p *Provider) GetAccountInfo(ctx context.Context) (*upstream.AccountInfo, error) {
@@ -592,28 +578,8 @@ func (p *Provider) ListDueHosts(ctx context.Context) ([]upstream.DueHost, error)
 // 价格口径（对齐上游 zjmf.php::upstreamBates）：
 //   - cost_price = 折后价（我方实际采购价，raw_specs.product_pricings）；
 //   - sale_price = 上游标价（raw_specs.product_pricings_list），供展示与折扣对比。
-//
-// 资源型上游：GET resource/agentproductsarray（data 兼容数组/包裹两种形态）。
 func (p *Provider) ListProducts(ctx context.Context) ([]*model.StandardProduct, error) {
 	products := make([]*model.StandardProduct, 0, 16)
-	if p.isResource() {
-		var raw json.RawMessage
-		if err := p.call(ctx, "ListProducts", http.MethodGet, "resource/agentproductsarray", nil, &raw); err != nil {
-			return nil, err
-		}
-		rows := flattenResourceProducts(raw)
-		for _, r := range rows {
-			id := jsonStr(r, "id")
-			if id == "" {
-				continue
-			}
-			products = append(products, &model.StandardProduct{
-				ProviderType: ProviderType, UpstreamID: id, Name: jsonStr(r, "name"), Status: "active", RawSpecs: r,
-			})
-		}
-		return products, nil
-	}
-
 	// 1) 商品分组（分类）：cart/all 只含**未隐藏分组**，其键集合同时是「前台在售分组」。
 	groups, groupsOK := p.fetchCartGroups(ctx)
 
@@ -1285,9 +1251,6 @@ func leadingInt(s string) int {
 // 与 ListProducts 同口径：分类名（cart/all）与代理折扣（cart/get_product_config 的 flag）一并取回，
 // 保证「新建商品前预览上游商品」看到的价格就是采购价。
 func (p *Provider) GetProduct(ctx context.Context, upstreamID string) (*model.StandardProduct, error) {
-	if p.isResource() {
-		return nil, p.notSupported("GetProduct", "资源型上游请使用 ListProducts 获取商品列表")
-	}
 	var resp OpenapiProdetailResp
 	if err := p.call(ctx, "GetProduct", http.MethodGet, "api/product/prodetail", url.Values{
 		"pids[]": {upstreamID},
@@ -1609,9 +1572,6 @@ func hostStatusTerminal(status string) bool {
 //
 // 账单金额自上而下扣减上游 API 账户余额，需确保该账户有足够余额。
 func (p *Provider) CreateInstance(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
-	if p.isResource() {
-		return nil, p.notSupported("CreateInstance", "资源型上游请走资源池开通流程处理")
-	}
 	pid := firstNonEmpty(strFromMap(req.Extra, "upstream_pid"), strFromMap(req.Extra, "pid"))
 	if pid == "" {
 		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "商品未绑定上游商品ID（upstream_pid），无法在财务上游下单"}
@@ -2036,9 +1996,6 @@ func (p *Provider) TerminateInstance(ctx context.Context, instanceID, reason str
 //
 // 上游任一步失败即整体失败，调用方不得回退为"只改本地账期"。
 func (p *Provider) RenewInstance(ctx context.Context, req *upstream.RenewRequest) (*upstream.RenewResult, error) {
-	if p.isResource() {
-		return nil, p.notSupported("RenewInstance", "资源型上游请走资源池续费流程处理")
-	}
 	if req == nil || req.ProviderInstanceID == "" {
 		return nil, &upstream.ProviderError{Op: "RenewInstance", Msg: "缺少上游主机ID"}
 	}
@@ -2112,44 +2069,6 @@ var (
 	_ upstream.AccountReader         = (*Provider)(nil)
 	_ upstream.FinanceLedgerReader   = (*Provider)(nil)
 )
-
-// notSupported 返回能力不支持错误（用于运行期分支：如资源型上游下的 GetProduct/CreateInstance）。
-func (p *Provider) notSupported(op, msg string) error {
-	return &upstream.ProviderError{Op: op, Msg: msg}
-}
-
-// flattenResourceProducts 兼容资源型上游商品数组的两种形态：[...] 或 {data:[...]}。
-func flattenResourceProducts(raw json.RawMessage) []map[string]interface{} {
-	var arr []map[string]interface{}
-	if err := json.Unmarshal(raw, &arr); err == nil {
-		return arr
-	}
-	var wrapped struct {
-		Data []map[string]interface{} `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &wrapped); err == nil {
-		return wrapped.Data
-	}
-	return nil
-}
-
-// jsonStr 从 map 取字符串值（兼容 json.Number / float64）。
-func jsonStr(m map[string]interface{}, key string) string {
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
-	}
-	switch t := v.(type) {
-	case string:
-		return t
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
-	case json.Number:
-		return t.String()
-	default:
-		return fmt.Sprintf("%v", t)
-	}
-}
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

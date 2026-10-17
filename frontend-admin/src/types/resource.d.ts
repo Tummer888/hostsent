@@ -785,10 +785,21 @@ export interface ReconcileItem {
   expire_diff_days: number | null
   expire_anomaly: string
   expire_anomaly_name: string
-  // 状态向（doc120）：上游状态原文与本地状态的一致性判据。
+  // 状态向（doc120）。
+  // upstream_status 是上游**服务状态**原文（raw_data.domainstatus，
+  // Active/Suspended/Deleted...），不是机器电源状态：财务型上游（zjmf）
+  // 没有电源字段，客户关机后它仍然是 Active。
   upstream_status: string
+  // upstream_status_name 上游服务状态中文名（与本地侧同一套用词）。
+  upstream_status_name: string
   status_anomaly: string
   status_anomaly_name: string
+  // local_service_state(_name) 本地**服务**维度，是与 upstream_status 比对时
+  // 的本地侧口径（服务中/宽限期/开通中/已暂停/已终止/已取消）。
+  // 展示"状态（本地 / 上游）"用它；status/status_name 是机器电源维度
+  // （运行中/已停止），只在"这台机器开没开机"的场景使用。
+  local_service_state: string
+  local_service_state_name: string
   anomalies: ReconcileAnomalyItem[]
   severity: string
   severity_name: string

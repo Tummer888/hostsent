@@ -185,3 +185,57 @@ func TestContract_ListInstances_PagedShape(t *testing.T) {
 		t.Errorf("解析结果不对: %+v", list)
 	}
 }
+
+// TestContractSuspendReasonMapsToPanelType 暂停原因必须映射成面板认识的动作码。
+//
+// 魔方云接口 POST /clouds/{id}/suspend 的 type 是**机器可读的动作码**
+// （due=到期 / traffic=流量超额 / other=其他），不是给人看的说明文字。
+//
+// 而调用方传的是中文说明（生命周期推进器传"到期未续费自动暂停"、管理员暂停传
+// 任意的 reason 文本）。适配器此前只认 due/expire/expired 与 flow/traffic 这几个
+// **英文**关键词，中文说明一个都不匹配 → 全部落进 other：
+// 到期自动暂停在下游面板上显示成"其他原因暂停"，运营在面板侧看到的原因与
+// 我方账期事实不符（用户口径：到期了就向魔方云发送"暂停"，原因应当是到期）。
+//
+// 本用例钉住映射：中文"到期…"→due、流量语义→traffic、其余→other。
+func TestContractSuspendReasonMapsToPanelType(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason string
+		want   string
+	}{
+		{"到期自动暂停（推进器实际传入）", "到期未续费自动暂停", "due"},
+		{"到期（简写）", "到期", "due"},
+		{"英文 due", "due", "due"},
+		{"英文 expired", "expired", "due"},
+		{"流量超额", "流量超额", "traffic"},
+		{"英文 traffic", "traffic", "traffic"},
+		{"违规暂停（管理员）", "违规使用：对外发送垃圾邮件", "other"},
+		{"空原因", "", "other"},
+		{"未知中文", "管理员暂停", "other"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotType string
+			p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/login" {
+					_, _ = w.Write([]byte("token"))
+					return
+				}
+				if r.URL.Path == "/v1/clouds/1934/suspend" {
+					_ = r.ParseForm()
+					gotType = r.FormValue("type")
+					_, _ = w.Write([]byte("{}"))
+					return
+				}
+				http.NotFound(w, r)
+			})
+			if err := p.SuspendInstance(context.Background(), "1934", tc.reason); err != nil {
+				t.Fatalf("SuspendInstance 失败: %v", err)
+			}
+			if gotType != tc.want {
+				t.Errorf("reason=%q → type=%q, want %q", tc.reason, gotType, tc.want)
+			}
+		})
+	}
+}

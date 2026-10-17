@@ -877,7 +877,10 @@ func (s *providerService) listPoolsGroupedByRegion(
 	if pageSize > 0 {
 		start := (page - 1) * pageSize
 		if start >= len(topLevel) {
-			topLevel = nil
+			// 置为**空切片**而不是 nil：nil 会被序列化成 JSON `null`，前端表格组件
+			// 对 null 取 length 直接抛错（实测 "Cannot read properties of null (reading 'length')"，
+			// 层级视图页签整片打不开）。空切片序列化成 `[]`，表格正常走空态分支。
+			topLevel = make([]dto.PoolInfo, 0)
 		} else {
 			end := start + pageSize
 			if end > len(topLevel) {

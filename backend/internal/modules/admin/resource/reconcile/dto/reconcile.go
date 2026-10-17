@@ -121,9 +121,21 @@ type ReconcileItem struct {
 	// ---- 状态向（doc120）----
 	// UpstreamStatus 上游状态原文（raw_data.domainstatus）；空表示该上游不提供此字段，
 	// 此时 StatusAnomaly 恒为 ok——"不做比对"与"比对不出"要能区分开。
-	UpstreamStatus    string `json:"upstream_status"`
-	StatusAnomaly     string `json:"status_anomaly"`
-	StatusAnomalyName string `json:"status_anomaly_name"`
+	//
+	// 注意这是**服务状态**（Active/Suspended/Deleted...），不是机器电源状态：
+	// 财务型上游（zjmf）没有电源字段，客户在控制台关机后它仍然是 Active。
+	UpstreamStatus string `json:"upstream_status"`
+	// UpstreamStatusName 上游状态中文名（与本地侧同一套服务维度用词，便于并排阅读）。
+	UpstreamStatusName string `json:"upstream_status_name"`
+	StatusAnomaly      string `json:"status_anomaly"`
+	StatusAnomalyName  string `json:"status_anomaly_name"`
+	// LocalServiceState / LocalServiceStateName 本地**服务**维度，是与上游
+	// domainstatus 比对时的本地侧口径（服务中/宽限期/开通中/已暂停/已终止/已取消）。
+	//
+	// 与 Status/StatusName（机器电源维度：运行中/已停止）区分开：前端展示
+	// "状态（本地 / 上游）"时用这一对——用机器状态展示会让人以为"关机 = 状态不一致"。
+	LocalServiceState     string `json:"local_service_state"`
+	LocalServiceStateName string `json:"local_service_state_name"`
 
 	// Anomalies 该实例命中的全部异常（价格 + 到期 + 状态）。
 	Anomalies    []AnomalyItem `json:"anomalies"`

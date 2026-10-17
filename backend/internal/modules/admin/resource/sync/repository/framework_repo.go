@@ -62,7 +62,7 @@ type FrameworkRepository interface {
 	ListPoolSnapshotsByProvider(ctx context.Context, providerID uint64) ([]PoolSnapshot, error)
 	MarkResourceProductsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string) (int64, error)
 	MarkPoolsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string, poolTypes []string) (int64, error)
-	MarkInstancesOffline(ctx context.Context, providerID uint64, keepInstanceIDs []string) (int64, error)
+	MarkInstancesDeleted(ctx context.Context, providerID uint64, keepProviderInstanceIDs []string) ([]MarkedInstance, error)
 
 	// PurgeFrameworkBefore 分批清理过保留期的差异/调价事件（任务与日志由既有 PurgeSyncDataBefore 负责）
 	PurgeFrameworkBefore(ctx context.Context, before time.Time, batchSize int) (int64, error)
@@ -98,6 +98,14 @@ type PoolSnapshot struct {
 	// PoolType 池类型（node/region/storage…）：全量对账按类型分域，避免 pool 与
 	// region 两个 scope 把对方行误判为「上游已消失」。
 	PoolType string
+}
+
+// MarkedInstance 一条被缺席判定标记为「上游已删除」的本地实例。
+// 同步引擎据此写 sync_diffs，让运营在同步中心看到"哪些机器被标记了"。
+type MarkedInstance struct {
+	ID         uint64
+	InstanceID string
+	Name       string
 }
 
 type frameworkRepository struct {
@@ -413,20 +421,78 @@ func (r *frameworkRepository) MarkPoolsOffline(ctx context.Context, providerID u
 	return res.RowsAffected, res.Error
 }
 
-// MarkInstancesOffline 把上游链路实例中本轮未出现的置 offline。
-// 自营链路（source_mode='self'）实例不受上游同步影响，一律不标记。
-// 占位实例（provider_instance_id 为空、尚未在上游开通）同理不标记：
-// 它本来就不在上游清单里，被标记会把"待开通"的机器显示成"离线"。
-func (r *frameworkRepository) MarkInstancesOffline(ctx context.Context, providerID uint64, keepInstanceIDs []string) (int64, error) {
+// MarkInstancesDeleted 把本轮上游清单里**不存在**的实例同步为「已删除」。
+//
+// 覆盖两条链路：上游转售与自营平台都算。用户口径（第二十三轮）：
+// 「我方云那边进行了删除，你这边肯定也要同步这个状态」——自营机器在魔方云面板
+// 被删除后，本地必须能看出来；早先这里硬编码 `source_mode='upstream'`，
+// 自营实例永远不参与对账，面板删掉了本地还一直显示在跑（幽灵机）。
+//
+// 匹配键用 **provider_instance_id**（上游实例号），不是 instance_id：
+// instance_id 是本地展示号，自营开通时等于上游号，但「按上游号重新关联」后
+// （RelinkUpstream + migrate_instance_id=false）两者会分叉 —— 用 instance_id
+// 比对会把一台明明还在上游跑的机器判成"已删除"。
+//
+// 落 status=deleted 而不是原来的 offline：
+//
+//	· `offline` 是个**只写不读**的字符串 —— 前端不认识、serviceStateOf 也不认识，
+//	  落到界面上是「未知」，运营根本看不出发生了什么；
+//	· 上游清单里既然已经没有这台机器，它就是**事实上的已删除**，落 deleted 才能
+//	  让「服务已终止」这类终态展示与销毁路径的语义一致（幂等：重复标记无副作用）。
+//
+// 不落 lifecycle_stage=destroyed：阶段是"到期处置流程"的进度，面板侧删除不是
+// 我方处置的结果，把阶段写成 destroyed 会污染到期/续费链路的口径。服务维度的
+// 展示由 status=deleted 兜住（见 serviceStateOf）。
+//
+// 占位实例（provider_instance_id 为空、尚未在上游开通）不标记：它本来就不在
+// 上游清单里，标记会把"待开通"显示成"已删除"。
+//
+// 返回被标记的行（id / 标识 / 名称）供调用方写 sync_diffs；只更新 status，
+// 其余列（账期、归属、密码）一律不动 —— 面板侧删除不代表我方账务或审计可以丢。
+func (r *frameworkRepository) MarkInstancesDeleted(ctx context.Context, providerID uint64, keepProviderInstanceIDs []string) ([]MarkedInstance, error) {
 	base := r.db.WithContext(ctx).Table("instances").
-		Where("provider_id = ? AND source_mode = ?", providerID, "upstream").
+		Where("provider_id = ?", providerID).
 		Where("provider_instance_id <> ''").
-		Where("status <> ?", "offline")
-	if len(keepInstanceIDs) > 0 {
-		base = base.Where("instance_id NOT IN ?", keepInstanceIDs)
+		// 已经是终态的行不必再改（重复扫描不该刷新时间戳）。
+		Where("COALESCE(status, '') NOT IN ?", []string{"deleted", "cancelled"}).
+		// 销毁流程进行中的行不在这里改：它正被生命周期推进器/销毁接口处置，
+		// 状态由那条链路写，这里抢写会打乱"下发中 → 已销毁"的过渡态。
+		Where("COALESCE(lifecycle_stage, '') <> ?", "destroyed")
+	// keep 为空时**不得**标记：空清单通常是接口降级/账号权限不足（调用方已按
+	// 空清单/分页不全跳过，这里再兜一层，防止将来新增调用方漏判）。
+	if len(keepProviderInstanceIDs) == 0 {
+		return nil, nil
 	}
-	res := base.Updates(map[string]any{"status": "offline", "updated_at": time.Now()})
-	return res.RowsAffected, res.Error
+	base = base.Where("provider_instance_id NOT IN ?", keepProviderInstanceIDs)
+
+	var marked []MarkedInstance
+	if err := base.
+		Select("id, instance_id, name").
+		Scan(&marked).Error; err != nil {
+		return nil, err
+	}
+	if len(marked) == 0 {
+		return nil, nil
+	}
+	ids := make([]uint64, 0, len(marked))
+	for i := range marked {
+		ids = append(ids, marked[i].ID)
+	}
+	if err := r.db.WithContext(ctx).Table("instances").
+		Where("id IN ?", ids).
+		Updates(map[string]any{
+			"status":     "deleted",
+			"updated_at": time.Now(),
+			// 清过渡态：面板侧机器都没了，"关机中/重装中"这类进行中的动作不可能
+			// 再有结果。不清会让展示层（过渡态优先于终态）把「已删除」盖成
+			// 「重启中（结果未确认）」—— 与销毁流程同一取舍（见 instance_service）。
+			"transition_state":      "",
+			"transition_started_at": nil,
+			"transition_until":      nil,
+		}).Error; err != nil {
+		return nil, err
+	}
+	return marked, nil
 }
 
 // PurgeFrameworkBefore 分批清理差异与调价事件。

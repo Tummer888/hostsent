@@ -29,8 +29,12 @@ func TestFindingsFromRow_Expansion(t *testing.T) {
 		LocalExpire:    &exp,
 		UpstreamExpire: &up,
 		Status:         "running",
-		StatusAnomaly:  "status_mismatch",
-		UpstreamStatus: "Suspended",
+		// 状态向两侧都必须是**服务维度**：LocalServiceState 是归一后的服务口径，
+		// Status（机器电源维度）不参与比对与台账展示 —— 混进来会让"关机"这类
+		// 与对账无关的动作出现在差异台账里（第二十一轮误报修复）。
+		LocalServiceState: "active",
+		StatusAnomaly:     "status_mismatch",
+		UpstreamStatus:    "Suspended",
 	}
 	got := findingsFromRow(row)
 	if len(got) != 3 {
@@ -66,11 +70,33 @@ func TestFindingsFromRow_Expansion(t *testing.T) {
 	if !ok {
 		t.Fatal("缺少 status_mismatch")
 	}
-	if status.LocalValue != "running" || status.UpstreamValue != "Suspended" {
-		t.Errorf("状态两侧快照不正确: %q / %q", status.LocalValue, status.UpstreamValue)
+	if status.LocalValue != "active" || status.UpstreamValue != "Suspended" {
+		t.Errorf("状态两侧快照应为服务维度: %q / %q", status.LocalValue, status.UpstreamValue)
 	}
 	if status.Severity != reconmodel.SeverityWarning {
-		t.Errorf("上游暂停本地运行应为 warning，实际 %s", status.Severity)
+		t.Errorf("上游暂停本地在服务应为 warning，实际 %s", status.Severity)
+	}
+	if status.LocalValue == "running" {
+		t.Error("台账本地侧记成了机器电源状态（running）—— 应记服务维度（active）")
+	}
+}
+
+// TestFindingsFromRow_ShutdownIsNotAnomaly 关机不产生状态差异（第二十一轮）。
+//
+// 用户实测误报：控制台关机后本地 status=stopped、上游 domainstatus 仍 Active
+// （zjmf 没有电源字段），旧判据把两者机械比较，于是每次关机都会在台账里
+// 留下一条"上游已暂停本地未同步"。这里把"关机不是差异"钉成断言：
+// 只要 status_anomaly 是 ok（即 SQL 判据没有拿机器状态去比），就不应有差异行。
+func TestFindingsFromRow_ShutdownIsNotAnomaly(t *testing.T) {
+	row := repository.ReconcileRow{
+		ID:                7,
+		Status:            "stopped", // 机器维度：已关机
+		LocalServiceState: "active",  // 服务维度：仍在使用（上游也是 Active）
+		StatusAnomaly:     "ok",
+		UpstreamStatus:    "Active",
+	}
+	if got := findingsFromRow(row); len(got) != 0 {
+		t.Fatalf("关机不应产生差异行，实际 %+v", got)
 	}
 }
 

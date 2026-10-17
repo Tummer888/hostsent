@@ -562,7 +562,7 @@ const diffColumns: PrimaryTableCol<SyncDiffInfo>[] = [
 const diffActionLabels: Record<string, string> = {
   created: '新增',
   updated: '字段更新',
-  offline: '上游下线',
+  offline: '上游已删除',
   missing: '本地缺失',
   price_changed: '价格变化',
 }

@@ -159,22 +159,30 @@
             </div>
           </template>
 
-          <!-- 运行状态：本地 vs 上游。上游不提供该字段（非魔方财务链路）时显示「不适用」，
-             与「查不到」区分开——否则会让人以为所有实例都缺数据。 -->
+          <!-- 服务状态：本地 vs 上游。**两侧都是服务维度**——上游是 domainstatus
+               （Active/Suspended/Deleted），本地是生命周期阶段与暂停原因归一后的服务口径。
+               不能用本地机器电源状态（status_name）：财务型上游没有电源字段，客户关一次机
+               本地就变「已停止」而上游仍是 Active，看着像不一致，实际根本不是一回事
+               （用户实测误报，第二十一轮修复）。机器状态单独一行展示，语义不混。
+               上游不提供该字段（非魔方财务链路）时显示「不适用」，与「查不到」区分开。 -->
           <template #run_state="{ row }">
-            <div class="pair-cell">
+            <div class="pair-cell pair-cell--service">
               <div class="pair-row">
-                <span class="pair-label">本地</span>
-                <span class="pair-value">{{ row.status_name }}</span>
+                <span class="pair-label">本地服务</span>
+                <span class="pair-value">{{ row.local_service_state_name || '—' }}</span>
               </div>
               <div class="pair-row">
-                <span class="pair-label">上游</span>
+                <span class="pair-label">上游服务</span>
                 <span
                   class="pair-value"
                   :class="row.status_anomaly === 'ok' || !row.status_anomaly ? '' : 'value-warn'"
                 >
-                  {{ row.upstream_status || '不适用' }}
+                  {{ row.upstream_status_name || row.upstream_status || '不适用' }}
                 </span>
+              </div>
+              <div class="pair-row pair-row--margin">
+                <span class="pair-label">机器</span>
+                <span class="pair-value pair-value--muted">{{ row.status_name }}</span>
               </div>
             </div>
           </template>
@@ -307,7 +315,6 @@
       <t-descriptions v-if="detailRow" :column="2" bordered size="small">
         <t-descriptions-item label="实例">{{ detailRow.name || detailRow.instance_id }}</t-descriptions-item>
         <t-descriptions-item label="实例号">{{ detailRow.instance_id }}</t-descriptions-item>
-        <t-descriptions-item label="服务状态">{{ detailRow.status_name }}</t-descriptions-item>
         <t-descriptions-item label="所属渠道">
           {{ detailRow.provider_name || `渠道 #${detailRow.provider_id}` }}
         </t-descriptions-item>
@@ -349,9 +356,17 @@
           </template>
           <template v-else>无法比对（缺一侧到期时间）</template>
         </t-descriptions-item>
-        <t-descriptions-item label="上游状态">{{
-          detailRow.upstream_status || '不适用（该上游不提供状态字段）'
+        <!-- 服务维度成对展示：上游 domainstatus 是服务状态，本地侧也用服务口径，
+             机器开关机状态单独一项（两者不是一回事，见列表列注释）。 -->
+        <t-descriptions-item label="本地服务状态">{{
+          detailRow.local_service_state_name || '—'
         }}</t-descriptions-item>
+        <t-descriptions-item label="上游服务状态">{{
+          detailRow.upstream_status
+            ? detailRow.upstream_status_name || detailRow.upstream_status
+            : '不适用（该上游不提供状态字段）'
+        }}</t-descriptions-item>
+        <t-descriptions-item label="机器状态">{{ detailRow.status_name }}</t-descriptions-item>
         <t-descriptions-item label="状态判据">
           <t-tag
             v-if="detailRow.status_anomaly && detailRow.status_anomaly !== 'ok'"
@@ -362,7 +377,7 @@
           >
             {{ detailRow.status_anomaly_name }}
           </t-tag>
-          <span v-else class="cell-muted">{{ detailRow.upstream_status ? '与上游一致' : '未比对' }}</span>
+          <span v-else class="cell-muted">{{ detailRow.upstream_status ? '两侧一致' : '未比对' }}</span>
         </t-descriptions-item>
       </t-descriptions>
     </t-dialog>
@@ -547,7 +562,7 @@ const columns = computed<PrimaryTableCol<ReconcileItem>[]>(() => {
     { colKey: 'instance', title: '实例', minWidth: 200 },
     { colKey: 'price', title: '售价 / 成本 / 毛利', minWidth: 190 },
     { colKey: 'expire', title: '到期（本地 / 上游）', minWidth: 190 },
-    { colKey: 'run_state', title: '状态（本地 / 上游）', minWidth: 160 },
+    { colKey: 'run_state', title: '服务状态（本地 / 上游）', minWidth: 160 },
     { colKey: 'anomaly', title: '异常项', minWidth: 180 },
     { colKey: 'severity', title: '等级', width: 90 },
   ]
@@ -815,10 +830,21 @@ defineExpose({ reload })
   color: var(--color-muted-foreground);
 }
 
+/* 服务状态列用「本地服务 / 上游服务」四字标签，28px 装不下会与取值挤在一起；
+   其它列（售价/成本/毛利、本地/上游/偏差）都是两字，保持原宽不浪费横向空间。 */
+.pair-cell--service .pair-label {
+  flex: 0 0 46px;
+}
+
 .pair-value {
   font-size: 12px;
   color: var(--color-foreground);
   font-variant-numeric: tabular-nums;
+}
+
+/* 机器状态是旁注（服务状态才是对账比对的对象），弱化一档避免与上方抢注意力。 */
+.pair-value--muted {
+  color: var(--color-muted-foreground);
 }
 
 .value-danger {

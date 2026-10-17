@@ -12,8 +12,13 @@ const (
 	KindPriceThinMargin = "price_thin_margin" // 毛利率低于阈值
 	KindExpireEarly     = "expire_early"      // 本地到期早于上游（用户已付费区间被截短）
 	KindExpireLate      = "expire_late"       // 本地到期晚于上游（上游可能已停服而本地仍计费）
-	KindStatusMismatch  = "status_mismatch"   // 上游已暂停，本地仍视为运行中
-	KindStatusStale     = "status_stale"      // 上游已删除/取消，本地仍视为有效
+	// KindStatusMismatch 服务状态两侧对不上号（上游暂停/开通中，本地口径不一致）。
+	//
+	// 注意：**不含机器电源状态**。财务型上游（zjmf）没有电源字段，客户关机后
+	// domainstatus 仍是 Active，那是"机器没通电"而非"服务状态不同步"——
+	// 混进来会每次关机都报一条（第二十一轮修复的误报）。
+	KindStatusMismatch = "status_mismatch"
+	KindStatusStale    = "status_stale" // 上游已终止，本地服务仍视为在用
 )
 
 // 差异等级。
@@ -44,13 +49,17 @@ var KindSeverity = map[string]string{
 }
 
 // KindNames 差异类型展示名。
+//
+// 文案只描述**服务**维度，不写机器开关机：上游侧是 domainstatus（服务状态），
+// 本地侧是 lifecycle_stage 归一后的服务口径，两侧都比不到"机器通没通电"。
+// 用"已暂停/未同步"这种词会让人以为"我关了机、系统没同步"（第二十一轮用户反馈）。
 var KindNames = map[string]string{
 	KindPriceBelowCost:  "售价低于成本",
 	KindPriceThinMargin: "毛利过薄",
 	KindExpireEarly:     "本地到期过早",
 	KindExpireLate:      "本地到期过晚",
-	KindStatusMismatch:  "上游已暂停本地未同步",
-	KindStatusStale:     "上游已删除本地仍有效",
+	KindStatusMismatch:  "服务状态两侧不一致",
+	KindStatusStale:     "上游已终止本地仍在服务",
 }
 
 // KindLabel 取展示名，未知类型回落原码（避免新类型在页面上显示空白）。
@@ -59,6 +68,38 @@ func KindLabel(kind string) string {
 		return name
 	}
 	return kind
+}
+
+// serviceStateLabels 服务维度取值的中文名（台账两侧的展示口径）。
+//
+// 台账存的是归一值（本地侧 lifecycle_stage 归一后的服务口径、上游侧 domainstatus 原文），
+// 直接展示会露出 "active"/"Active" 这样的内部码 —— 台账页"本地/上游"两行并排，
+// 一边中文一边英文码既难读、也让人以为两侧是两回事。
+var serviceStateLabels = map[string]string{
+	// 本地侧（归一值）
+	"active":       "服务中",
+	"grace":        "宽限期",
+	"provisioning": "开通中",
+	"suspended":    "已暂停",
+	"destroyed":    "已终止",
+	"cancelled":    "已取消",
+	"unknown":      "未知",
+	// 上游侧（domainstatus 原文）
+	"Active":     "服务中",
+	"Pending":    "开通中",
+	"Suspended":  "已暂停",
+	"Deleted":    "已终止",
+	"Terminated": "已终止",
+	"Cancelled":  "已取消",
+	"Fraud":      "风控冻结",
+}
+
+// ServiceStateLabel 服务维度取值的中文展示；未登记原样回显（便于发现新状态）。
+func ServiceStateLabel(v string) string {
+	if name, ok := serviceStateLabels[v]; ok {
+		return name
+	}
+	return v
 }
 
 // SeverityOf 取类型对应的等级，未登记按预警处理（宁可多提醒也不要漏掉资金风险）。

@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -287,5 +288,87 @@ func TestAdoptPendingSkipsDeletedPlaceholder(t *testing.T) {
 	}
 	if fresh.LifecycleStage == "destroyed" {
 		t.Fatal("新行不得继承已删除占位的 destroyed 阶段（终态不复活规则会让它永远刷不出状态）")
+	}
+}
+
+// TestUpsertInstancesKeepsLocalExpireWhenUpstreamSilent 上游不返回到期时，同步不得抹掉本地账期。
+//
+// 用户口径（自营链路权威模型）：**到期日由我方设定** —— 自营实例的账期来自订单周期
+// 与我方的续费动作，魔方云不提供到期字段（dcimcloud 适配器从不填
+// StandardInstance.ExpireAt）。而实例同步（scope=instance，默认 300 秒一轮）
+// 的 upsert 对 expire_at 是无条件覆盖 `excluded.expire_at`：
+// 适配器没给值 → 指针为 nil → 写进去就是 NULL。
+//
+// 后果：一台正常在用的自营机器，每 5 分钟被同步清一次账期；
+// 接着生命周期推进器看到 expire_at 为空（它靠 expire_at 判定到期），
+// 「即将到期」列表与到期提醒全部失效，被清成 NULL 的行再也回不到账期视图里。
+//
+// 修法与本文件既有的 provider_instance_id / credential_password 同一套路：
+// **空值不得覆盖已有值**（只在本次确实带到期时间时才写）。
+//
+//	go test -tags live ./internal/modules/admin/resource/sync/repository/
+func TestUpsertInstancesKeepsLocalExpireWhenUpstreamSilent(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Skipf("无可用测试库：%v", err)
+	}
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("开启事务失败: %v", tx.Error)
+	}
+	defer tx.Rollback()
+
+	ctx := context.Background()
+	repo := NewSyncRepository(tx)
+
+	const mark = "livetest-upsert-keep-expire-9999204"
+	expire := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	// 1) 自营实例：账期由我方设定（订单/续费写入），上游实例号已知。
+	row := &syncmodel.Instance{
+		InstanceID: mark, ProviderID: 61, UserID: 2236, Name: "keep-expire",
+		Status: "running", SourceMode: "self", SellProductID: 175,
+		ProviderInstanceID: "9999204", ExpireAt: &expire,
+	}
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{*row}); err != nil {
+		t.Fatalf("首次写入失败: %v", err)
+	}
+
+	// 2) 模拟实例同步：魔方云只回状态/规格，不返回到期时间（ExpireAt 为零值）。
+	synced := *row
+	synced.Name = "keep-expire-renamed"
+	synced.ExpireAt = nil
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{synced}); err != nil {
+		t.Fatalf("同步 upsert 失败: %v", err)
+	}
+	var got syncmodel.Instance
+	if err := tx.Where("instance_id = ?", mark).Take(&got).Error; err != nil {
+		t.Fatalf("回查失败: %v", err)
+	}
+	if got.ExpireAt == nil {
+		t.Fatal("本地账期被同步抹成 NULL：自营到期日由我方设定，上游不返回到期时不得覆盖")
+	}
+	if !got.ExpireAt.Equal(expire) {
+		t.Fatalf("本地账期被改动：got %v, want %v", got.ExpireAt, expire)
+	}
+	if got.Name != "keep-expire-renamed" {
+		t.Fatalf("其余列应正常同步：name=%q", got.Name)
+	}
+
+	// 3) 上游确实返回到期时仍可正常改写（对接链路的上游账期是权威）。
+	later := expire.AddDate(0, 1, 0)
+	withExpire := synced
+	withExpire.ExpireAt = &later
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{withExpire}); err != nil {
+		t.Fatalf("带到期 upsert 失败: %v", err)
+	}
+	if err := tx.Where("instance_id = ?", mark).Take(&got).Error; err != nil {
+		t.Fatalf("带到期后回查失败: %v", err)
+	}
+	if got.ExpireAt == nil || !got.ExpireAt.Equal(later) {
+		t.Fatalf("上游返回到期时应可改写：got %v, want %v", got.ExpireAt, later)
 	}
 }

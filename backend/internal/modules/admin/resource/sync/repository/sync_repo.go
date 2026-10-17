@@ -253,8 +253,22 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 			"memory":     gorm.Expr("excluded.memory"),
 			"disk":       gorm.Expr("excluded.disk"),
 			"raw_data":   gorm.Expr("excluded.raw_data"),
-			"expire_at":  gorm.Expr("excluded.expire_at"),
 			"updated_at": gorm.Expr("excluded.updated_at"),
+			// 账期只在本次确实带了到期时间时才写。
+			//
+			// 为什么不能无条件覆盖：到期日的**权威方随链路不同** ——
+			//   · 上游转售：上游账期是权威，回源带回新到期时间就应改写（续费在对方侧发生）；
+			//   · 自营平台：**到期日由我方设定**（订单周期 + 我方续费动作），
+			//     魔方云不提供到期字段（dcimcloud 适配器从不填 StandardInstance.ExpireAt）。
+			//
+			// 而实例同步（scope=instance，默认 300 秒一轮）走的就是这里：适配器没给值
+			// 意味着 ExpireAt 为零值，无条件写 `excluded.expire_at` 就是写 NULL ——
+			// 一台正常在用的自营机器每 5 分钟被清一次账期，此后「即将到期」列表、
+			// 到期提醒与生命周期推进（都靠 expire_at 判定）对它全部失效。
+			// 与 provider_instance_id / credential_password 同一套路：**空值不得覆盖已有值**。
+			"expire_at": gorm.Expr(
+				"CASE WHEN excluded.expire_at IS NOT NULL THEN excluded.expire_at ELSE instances.expire_at END",
+			),
 			// 规格明细随回源刷新（此前只更新 cpu/memory/disk，带宽/系统/区域
 			// 在线路上永远保持首次落库值：实测同一实例 bandwidth=30 而上游商品是 15、
 			// os 显示 CentOS 而上游是 Debian 这类错值）。
@@ -401,8 +415,11 @@ func (r *syncRepository) CountInstancesByProductUser(ctx context.Context, userID
 	return count, err
 }
 
-// InstanceLinkage 某上游实例号在本地的既有归属与链路语义。
+// InstanceLinkage 本地既有实例的归属与链路语义（同步 upsert 前回查）。
 type InstanceLinkage struct {
+	// InstanceID 本地展示号。上游号与展示号可能不同（按上游号重新关联且未迁移展示号），
+	// 沿用它可以避免同步另插一行。
+	InstanceID string
 	UserID     uint64
 	SourceMode string
 	// UpstreamProductID 既有上游资源商品绑定；自营实例为 0，同步不得覆盖。
@@ -410,39 +427,68 @@ type InstanceLinkage struct {
 	// LifecycleStage 既有生命周期阶段。destroyed 是本系统认定的终态（已销毁/终止），
 	// 上游若仍返回该实例（软删未清、接口缓存），同步不得把它复活成在跑机器。
 	LifecycleStage string
+	// Status 既有本地状态。过渡态未确认时用它兜住前瞻值：本地刚下发关机、
+	// 上游还没转过来，照抄上游的旧值会把刚写入的状态冲掉。
+	Status string
+	// TransitionState 进行中的过渡态（空 = 空闲）。非空表示有一条我方下发、
+	// 上游尚未确认完成的电源/重装类动作，同步不得用上游旧状态覆盖本地状态。
+	TransitionState string
 }
 
-// ExistingInstanceLinks 批量查 instance_id → 既有归属与链路语义。
+// ExistingInstanceLinks 批量查上游实例号 → 既有归属与链路语义。
+//
+// 匹配键同时认 provider_instance_id 与 instance_id：
+//   - 常规行两者相同（自营开通与同步发现都是）；
+//   - 「按上游号重新关联」且未迁移展示号时两者分叉，只认 instance_id 会查不到 →
+//     同步把它当新实例、按上游号另插一行（同一台机器在列表里出现两行）。
 //
 // 用途：同步只应"发现"上游实例，不应把我方经订单开通的自营实例改写成上游链路、
 // 也不应改掉它的归属用户——那会让实例从用户控制台消失、续费/生命周期错挂。
 // 因此 upsert 前回查既有行，命中则把 user_id / source_mode / upstream_product_id
 // 恢复为原值（这三列都在 UpsertInstances 的更新列或NOT NULL 约束上）。
-func (r *syncRepository) ExistingInstanceLinks(ctx context.Context, instanceIDs []string) (map[string]InstanceLinkage, error) {
-	out := make(map[string]InstanceLinkage, len(instanceIDs))
-	if len(instanceIDs) == 0 {
+func (r *syncRepository) ExistingInstanceLinks(ctx context.Context, upstreamIDs []string) (map[string]InstanceLinkage, error) {
+	out := make(map[string]InstanceLinkage, len(upstreamIDs))
+	if len(upstreamIDs) == 0 {
 		return out, nil
 	}
 	type row struct {
-		InstanceID        string
-		UserID            uint64
-		SourceMode        string
-		UpstreamProductID uint64
-		LifecycleStage    string
+		InstanceID         string
+		ProviderInstanceID string
+		UserID             uint64
+		SourceMode         string
+		UpstreamProductID  uint64
+		LifecycleStage     string
+		Status             string
+		TransitionState    string
 	}
 	var rows []row
 	if err := r.db.WithContext(ctx).Model(&model.Instance{}).
-		Select("instance_id, user_id, source_mode, upstream_product_id, lifecycle_stage").
-		Where("instance_id IN ?", instanceIDs).
+		Select("instance_id, COALESCE(provider_instance_id, '') AS provider_instance_id, "+
+			"user_id, source_mode, upstream_product_id, lifecycle_stage, "+
+			"COALESCE(status, '') AS status, COALESCE(transition_state, '') AS transition_state").
+		Where("provider_instance_id IN ? OR instance_id IN ?", upstreamIDs, upstreamIDs).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	for _, item := range rows {
-		out[item.InstanceID] = InstanceLinkage{
+	for i := range rows {
+		item := rows[i]
+		link := InstanceLinkage{
+			InstanceID:        item.InstanceID,
 			UserID:            item.UserID,
 			SourceMode:        item.SourceMode,
 			UpstreamProductID: item.UpstreamProductID,
 			LifecycleStage:    item.LifecycleStage,
+			Status:            item.Status,
+			TransitionState:   item.TransitionState,
+		}
+		// 两个键都登记：引擎按上游号查，只有 instance_id 命中的老行也要能找到。
+		if item.ProviderInstanceID != "" {
+			out[item.ProviderInstanceID] = link
+		}
+		if item.InstanceID != "" {
+			if _, exists := out[item.InstanceID]; !exists {
+				out[item.InstanceID] = link
+			}
 		}
 	}
 	return out, nil

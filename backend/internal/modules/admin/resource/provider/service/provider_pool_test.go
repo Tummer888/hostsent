@@ -1,8 +1,11 @@
 package service
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
+	"hostsent/backend/internal/modules/admin/resource/provider/dto"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 )
 
@@ -74,5 +77,45 @@ func TestSummarizePoolsLocationOnly(t *testing.T) {
 	}
 	if s.TotalCPU != 0 || s.TotalMemory != 0 || s.TotalDisk != 0 {
 		t.Errorf("全位置型时容量应为 0，实得 cpu=%d mem=%d disk=%d", s.TotalCPU, s.TotalMemory, s.TotalDisk)
+	}
+}
+
+// TestPoolListResponseItemsSerializesEmptyArray 零结果的层级视图必须序列化成 `[]` 而非 `null`。
+//
+// 回归背景（实测故障，用户报 "Cannot read properties of null (reading 'length')"）：
+// 层级视图分页越界时曾把顶层切片置为 nil，JSON 出来是 `items: null`；前端树表格
+// （t-enhanced-table）在树模式下对 data 取 length，拿到 null 直接抛错 —— 渠道详情页
+// 「资源池」页签整片打不开。平铺视图当时返回 []，所以只有层级视图暴露。
+// 这里锁住契约：无论哪种视图、结果是否为空，items 都必须是数组。
+func TestPoolListResponseItemsSerializesEmptyArray(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		items []dto.PoolInfo
+	}{
+		{name: "空切片", items: make([]dto.PoolInfo, 0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// 复制 ListPools 的构造方式：items 直接来自切片变量。
+			resp := &dto.PoolListResponse{Items: tc.items}
+			raw, err := json.Marshal(resp)
+			if err != nil {
+				t.Fatalf("序列化失败: %v", err)
+			}
+			if strings.Contains(string(raw), `"items":null`) {
+				t.Fatalf("items 序列化成了 null，前端表格会抛错；期望 []。实际: %s", raw)
+			}
+			if !strings.Contains(string(raw), `"items":[]`) {
+				t.Fatalf("items 未序列化成空数组。实际: %s", raw)
+			}
+		})
+	}
+
+	// 反向锁：nil 切片确实会变成 null —— 这正是必须避开 nil 的原因。
+	rawNil, err := json.Marshal(&dto.PoolListResponse{Items: nil})
+	if err != nil {
+		t.Fatalf("序列化失败: %v", err)
+	}
+	if !strings.Contains(string(rawNil), `"items":null`) {
+		t.Fatalf("前置假设不成立：nil 切片本应序列化为 null，实得 %s", rawNil)
 	}
 }

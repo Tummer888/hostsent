@@ -196,14 +196,16 @@ func findingsFromRow(row repository.ReconcileRow) []reconmodel.ReconcileFinding 
 		f := base
 		f.Kind = reconmodel.KindStatusMismatch
 		f.Severity = reconmodel.SeverityOf(f.Kind)
-		f.LocalValue = row.Status
+		// 两侧都存**服务维度**：台账页按"本地 / 上游"成对展示，机器电源状态
+		// 混进来的话，运维看到 local=stopped 会以为是"关机没同步"（第二十一轮）。
+		f.LocalValue = row.LocalServiceState
 		f.UpstreamValue = row.UpstreamStatus
 		out = append(out, f)
 	case "status_stale":
 		f := base
 		f.Kind = reconmodel.KindStatusStale
 		f.Severity = reconmodel.SeverityOf(f.Kind)
-		f.LocalValue = row.Status
+		f.LocalValue = row.LocalServiceState
 		f.UpstreamValue = row.UpstreamStatus
 		out = append(out, f)
 	}

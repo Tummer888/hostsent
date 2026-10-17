@@ -28,7 +28,10 @@
       <t-tabs v-model="activeTab" theme="card" size="medium">
         <t-tab-panel value="basic" label="基本信息" />
         <t-tab-panel value="capability" label="能力矩阵" />
-        <t-tab-panel value="pools" label="资源池" />
+        <!-- 资源池页签只在渠道具备 pool 同步能力时出现（自营算力平台）。
+             上游转售渠道没有本地容量概念，调度与适配器两层都不产生 pool scope，
+             给一个永远空表的页签只会让人以为"数据没采到"。 -->
+        <t-tab-panel v-if="hasPoolCapability" value="pools" label="资源池" />
         <t-tab-panel value="schedules" label="同步与调度" />
         <t-tab-panel value="logs" label="同步日志" />
       </t-tabs>
@@ -217,8 +220,8 @@
         <t-empty v-else description="加载能力矩阵…" />
       </template>
 
-      <!-- 资源池 -->
-      <template v-else-if="activeTab === 'pools'">
+      <!-- 资源池（仅具备 pool 能力的渠道；见 hasPoolCapability 注释） -->
+      <template v-else-if="activeTab === 'pools' && hasPoolCapability">
         <PoolPanel :provider-id="providerId" />
       </template>
 
@@ -362,6 +365,10 @@ const listPath = computed(() => (detail.value?.kind === 'compute' ? '/resource/p
 // 自营平台（compute）才有本地容量概念，配额概览同理只在自营链路展示；
 // 上游转售渠道的容量权威在上游，本地字段恒为 0。
 const isCompute = computed(() => detail.value?.kind === 'compute')
+// 是否具备资源池能力：以渠道能力描述符的 sync_scopes 为准（后端唯一的权威判定，
+// 与同步引擎、调度生成、PoolReader 类型断言同源）。上游转售渠道（魔方财务等）的
+// 描述符只声明 catalog/price/instance，不含 pool —— 这类渠道不展示资源池页签。
+const hasPoolCapability = computed(() => (detail.value?.capabilities?.sync_scopes || []).includes('pool'))
 const detail = ref<ProviderInfo | null>(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -578,6 +585,9 @@ async function loadDetail() {
   loading.value = true
   try {
     detail.value = await getProviderDetail(providerId.value)
+    // 能力到手后回落页签：详情是异步加载的，若首屏 activeTab 停在当前渠道不支持的
+    // 页签上（如上游渠道的 pools），页签栏里根本没有它 —— 内容区会空白且无法察觉。
+    if (activeTab.value === 'pools' && !hasPoolCapability.value) activeTab.value = 'basic'
     Object.assign(formData, {
       name: detail.value.name,
       api_endpoint: detail.value.api_endpoint,

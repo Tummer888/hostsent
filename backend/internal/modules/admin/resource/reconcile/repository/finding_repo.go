@@ -64,6 +64,7 @@ func (r *findingRepository) ListAnomalies(ctx context.Context) ([]ReconcileRow, 
                upstream_product_id, upstream_product_name, upstream_sku, upstream_cost,
                margin_amount, margin_rate, price_anomaly, expire_anomaly, expire_diff_days,
                status_anomaly, COALESCE(raw_domainstatus, '') AS upstream_status,
+               local_service_state,
                expire_at AS local_expire, upstream_expire,
                ` + severityExpr + ` AS severity
           FROM marked

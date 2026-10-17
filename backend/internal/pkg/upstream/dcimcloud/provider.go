@@ -536,7 +536,11 @@ func (p *Provider) GetInstance(ctx context.Context, instanceID string) (*model.S
 		TaskName string `json:"task_name"`
 	}
 	if err := p.call(ctx, "GetInstance", http.MethodGet, "/clouds/"+instanceID+"/status", nil, &st); err == nil && st.Status != "" {
-		inst.Status = mapCloudStatus(st.Status)
+		// 未知取值（mapCloudStatus 返回空）不覆盖详情里已有的状态：
+		// 留空是"不知道"，而不是"关掉了"。
+		if mapped := mapCloudStatus(st.Status); mapped != "" {
+			inst.Status = mapped
+		}
 		if st.TaskName != "" {
 			if inst.RawData == nil {
 				inst.RawData = map[string]interface{}{}
@@ -567,19 +571,39 @@ func (p *Provider) RestartInstance(ctx context.Context, instanceID string) error
 }
 
 // SuspendInstance 暂停云主机：POST /clouds/{id}/suspend（type=traffic|due|other）。
-// reason 为 "flow"/"traffic" 时映射流量超额，"due" 映射到期，其余为 other。
+//
+// type 是**面板认识的机器可读动作码**，不是给人看的说明文字，所以调用方传进来的
+// reason 必须归一：早期实现只认 due/expire/expired 与 flow/traffic 这几个英文词，
+// 而实际调用方传的是中文说明（生命周期推进器传"到期未续费自动暂停"、
+// 管理员暂停传任意 reason 文本），一个都不匹配 → 到期暂停全被送到面板的
+// "其他原因"。运营在下游面板上看到的原因与我方账期事实不符。
+//
+// 归一规则（顺序敏感：到期优先于流量，两者都提及时按到期算——
+// 到期暂停是账期事实，流量超额只是可能伴随的处置理由）：
+//
+//	含"到期/过期/欠费"或 due/expire/expired → due
+//	含"流量"或 flow/traffic                  → traffic
+//	其余（违规、管理员手动、空值等）          → other
 func (p *Provider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
 	if instanceID == "" {
 		return &upstream.ProviderError{Op: "SuspendInstance", Msg: "缺少上游云主机ID"}
 	}
-	typ := "other"
-	switch strings.ToLower(strings.TrimSpace(reason)) {
-	case "flow", "traffic":
-		typ = "traffic"
-	case "due", "expire", "expired":
-		typ = "due"
+	return p.call(ctx, "SuspendInstance", http.MethodPost, "/clouds/"+instanceID+"/suspend",
+		url.Values{"type": {suspendTypeOf(reason)}}, nil)
+}
+
+// suspendTypeOf 把暂停原因归一为面板动作码（due/traffic/other）。
+func suspendTypeOf(reason string) string {
+	s := strings.ToLower(strings.TrimSpace(reason))
+	switch {
+	case strings.Contains(s, "到期"), strings.Contains(s, "过期"), strings.Contains(s, "欠费"),
+		strings.Contains(s, "due"), strings.Contains(s, "expire"):
+		return "due"
+	case strings.Contains(s, "流量"), strings.Contains(s, "flow"), strings.Contains(s, "traffic"):
+		return "traffic"
+	default:
+		return "other"
 	}
-	return p.call(ctx, "SuspendInstance", http.MethodPost, "/clouds/"+instanceID+"/suspend", url.Values{"type": {typ}}, nil)
 }
 
 // UnsuspendInstance 解除暂停：POST /clouds/{id}/unsuspend。
@@ -1536,7 +1560,6 @@ func buildInstance(detail map[string]interface{}) *model.StandardInstance {
 		PrivateIP:    firstIPOf(detail, "ipv6"),
 		Region:       jsonStr(detail, "area_name"),
 		Zone:         jsonStr(detail, "node_name"),
-		Status:       model.InstanceStatusRunning,
 		RawData:      detail,
 	}
 	inst.Specs.CPU = jsonInt(detail, "cpu")
@@ -1555,7 +1578,12 @@ func buildInstance(detail map[string]interface{}) *model.StandardInstance {
 	if v := jsonStr(detail, "port"); v != "" {
 		inst.RawData["port"] = v
 	}
-	// 状态：详情里的 status 字段（若有）
+	// 状态：面板行里的 status 字段（on/off/wait_reboot/suspend…）。
+	//
+	// 缺失时**留空**，不再默认填 running：这个值会被实例同步原样写进
+	// instances.status，默认 running 等于"接口没给状态 = 机器在跑"——
+	// 一次字段缺失（网关裁剪、旧版面板）就能把一批已关机的机器刷回「运行中」。
+	// 留空后同步侧保留本地值（见 syncInstances 的空状态保护）。
 	if s := jsonStr(detail, "status"); s != "" {
 		inst.Status = mapCloudStatus(s)
 	}
@@ -1646,18 +1674,31 @@ func jsonInt(m map[string]interface{}, key string) int {
 }
 
 // mapCloudStatus 将魔方云状态映射为标准实例状态（参考源码 getCloudStatus）。
+//
+// 未知取值返回**空串**（"不知道"），不再一律当成 stopped：
+// 这个值会被实例同步原样写进 instances.status，把 init（正在初始化）、
+// 面板新增的状态（备份中/迁移中等）统统说成「已关机」是伪造事实 ——
+// 运营会去点「开机」，而机器其实正在创建。留空后同步侧保留本地值
+// （见 syncInstances 的空状态保护）。
+//
+// suspend / paused → stopped 是刻意的：面板侧的暂停在机器层面就是停机，
+// 而"服务是否暂停"由我方账期状态表达（见 serviceStateOf），两者不能混。
 func mapCloudStatus(s string) model.StandardInstanceStatus {
-	switch s {
-	case "on":
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "on", "running":
 		return model.InstanceStatusRunning
-	case "off", "suspend", "paused":
+	case "off", "suspend", "paused", "shutdown":
 		return model.InstanceStatusStopped
-	case "wait_reboot", "task":
+	case "wait_reboot", "task", "reboot", "restarting":
 		return model.InstanceStatusRestarting
 	case "cold_migrate", "hot_migrate":
 		return model.InstanceStatusRunning
+	case "init", "creating", "pending", "building":
+		return model.InstanceStatusCreating
+	case "deleted", "destroyed", "removed":
+		return model.InstanceStatusDeleted
 	default:
-		return model.InstanceStatusStopped
+		return ""
 	}
 }
 
